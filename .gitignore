@@ -1,6 +1,4 @@
 .vscode
-node_modules
-package*.json
 *.js
 *.js.map
 __debug_bin

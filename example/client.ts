@@ -14,7 +14,7 @@ window.addEventListener("load", function(_evt) {
     logDiv = <HTMLDivElement>document.getElementById("log")
 
     initRTC()
-
+    
     peerID = <HTMLInputElement>document.getElementById("peerID")
     remotePeerID = <HTMLInputElement>document.getElementById("remotePeerID")
     output = <HTMLOutputElement>document.getElementById("output")

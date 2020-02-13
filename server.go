@@ -112,7 +112,7 @@ func (s *server) handleText(c *websocket.Conn, uid string, msg []byte) error {
 	case "info":
 		err = s.handleInfo(c, msg)
 	case "action":
-		err = s.handleAction(msg)
+		err = s.handleAction(uid, msg)
 	case "need":
 		err = s.handleNeed(c, msg)
 
@@ -133,8 +133,8 @@ func (s *server) handleNeed(c *websocket.Conn, msg []byte) error {
 	return c.WriteJSON(nr)
 }
 
-func (s *server) handleAction(msg []byte) error {
-	a, err := readAction(msg)
+func (s *server) handleAction(uid string, msg []byte) error {
+	a, err := readAction(uid, msg)
 	if err != nil {
 		return err
 	}
@@ -166,20 +166,18 @@ func (s *server) handleInfo(c *websocket.Conn, msg []byte) error {
 }
 
 func (s *server) handleOfferOrAnswer(uid string, msg []byte) error {
-	oa, err := readOfferOrAnswer(msg)
+	oa, err := readOfferOrAnswer(uid, msg)
 	if err != nil {
 		return err
 	}
-	oa.From = uid
 	return s.writeJSONToPeer(oa, oa.To)
 }
 
 func (s *server) handleForward(uid string, msg []byte) error {
-	f, err := readForward(msg)
+	f, err := readForward(uid, msg)
 	if err != nil {
 		return err
 	}
-	f.From = uid
 	return s.writeJSONToPeer(f, f.To)
 }
 

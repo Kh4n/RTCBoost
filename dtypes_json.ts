@@ -1,41 +1,46 @@
-interface offerOrAnswer {
-	type: string
-	from: string
-	to: string
-	sdp: string
-	PieceID: string
+export type msgTypes = "offer" | "answer" | "forward" | "info" | "infoResponse" | "action" | "need" | "needResponse"
+
+interface all {
+    type: msgTypes
 }
 
-interface forward {
-	type: string
-	from: string
+export interface offerOrAnswer extends all {
+	type: "offer" | "answer"
+	// from: string
+	to: string
+	sdp: string
+	pieceID: string
+}
+
+export interface forward extends all {
+	type: "forward"
+	// from: string
 	to: string
 	data: string
 }
 
-interface info {
-    type: string
+export interface info extends all {
+    type: "info"
     name: string
 }
-interface infoResponse {
-    type: string
-    piece_list: Array<String>
+export interface infoResponse extends all {
+    type: "infoResponse"
+    pieceList: Array<string>
 }
 
-interface action {
-    type: string
-	peerID: string
+export interface action extends all {
+    type: "action"
+	// peerID: string
 	name: string
 	pieceID: string
 	action: string
 }
 
-interface need {
-    type: string
-    peerID: string
+export interface need extends all {
+    type: "need"
     pieceID: string
 }
-interface needResponse {
-	type: string
-	peer_list: Array<string>
+export interface needResponse extends all {
+	type: "needResponse"
+	peerList: Array<string>
 }
