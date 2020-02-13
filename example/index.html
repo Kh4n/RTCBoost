@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="client.js"></script>
+</head>
+<body>
+<table>
+<tr><td valign="top" width="50%">
+<p>
+    Click "Open" to create a connection to the server,
+    "Connect" to connect to remote peer,
+    "Send" to send a message once connected, and
+    "Close" to terminate connection to server and/or remote peer.
+<p>
+<button id="open">Open</button>
+<button id="close">Close</button>
+<input id="peerID" type="text" value="Set a peerID">
+<input id="remotePeerID" type="text" value="Set a remote peerID">
+<button id="connect">Connect</button>
+<input id="input" type="text" value="Hello world!">
+<button id="send">Send</button>
+<div id="log" style="height:512px;width:512px;border:1px solid #ccc;font:12px/26px Monospace">
+</div>
+</td><td valign="top" width="50%">
+<div id="output"></div>
+</td></tr></table>
+</body>
+</html>
