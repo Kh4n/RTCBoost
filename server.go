@@ -129,7 +129,7 @@ func (s *server) handleNeed(c *websocket.Conn, msg []byte) error {
 	if err != nil {
 		return err
 	}
-	nr := makeNeedResponse(s.pp.getPeersForPiece(n.PieceID))
+	nr := makeNeedResponse(n.PieceID, s.pp.getPeersForPiece(n.PieceID))
 	return c.WriteJSON(nr)
 }
 

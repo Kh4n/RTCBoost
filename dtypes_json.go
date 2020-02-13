@@ -10,20 +10,18 @@ type all struct {
 }
 
 type offerOrAnswer struct {
-	Type       string `json:"type"`
-	From       string `json:"from"`
-	To         string `json:"to"`
-	PeerConnID string `json:"peerConnID"`
-	SDP        string `json:"sdp"`
-	PieceID    string `json:"pieceID"`
+	Type    string `json:"type"`
+	From    string `json:"from"`
+	To      string `json:"to"`
+	PieceID string `json:"pieceID"`
+	SDP     string `json:"sdp"`
 }
 
 type forward struct {
-	Type       string `json:"type"`
-	From       string `json:"from"`
-	To         string `json:"to"`
-	PeerConnID string `json:"peerConnID"`
-	Data       string `json:"data"`
+	Type string `json:"type"`
+	From string `json:"from"`
+	To   string `json:"to"`
+	Data string `json:"data"`
 }
 
 type info struct {
@@ -49,6 +47,7 @@ type need struct {
 }
 type needResponse struct {
 	Type     string   `json:"type"`
+	PieceID  string   `json:"pieceID"`
 	PeerList []string `json:"peerList"`
 }
 
@@ -70,19 +69,16 @@ func readOfferOrAnswer(peerID string, msg []byte) (*offerOrAnswer, error) {
 
 func (m *offerOrAnswer) Check() error {
 	if m.From == "" {
-		errors.New("no From field in JSON with type offerOrAnswer")
+		return errors.New("no From field in JSON with type offerOrAnswer")
 	}
 	if m.To == "" {
 		return errors.New("no To field in JSON with type offerOrAnswer")
 	}
-	if m.PeerConnID == "" {
-		return errors.New("no PeerConnID field in JSON with type offerOrAnswer")
-	}
 	if m.SDP == "" {
 		return errors.New("no SDP field in JSON with type offerOrAnswer")
 	}
-	if m.PieceID == "" && m.Type == "offer" {
-		return errors.New("no PieceID field in JSON with type offer")
+	if m.PieceID == "" {
+		return errors.New("no PieceID field in JSON with type answer")
 	}
 	return nil
 }
@@ -105,13 +101,10 @@ func readForward(peerID string, msg []byte) (*forward, error) {
 
 func (m *forward) Check() error {
 	if m.From == "" {
-		errors.New("no From field in JSON with type forward")
+		return errors.New("no From field in JSON with type forward")
 	}
 	if m.To == "" {
 		return errors.New("no To field in JSON with type forward")
-	}
-	if m.PeerConnID == "" {
-		return errors.New("no PeerConnID field in JSON with type forward")
 	}
 	if m.Data == "" {
 		return errors.New("no Data field in JSON with type forward")
@@ -202,9 +195,10 @@ func (m *need) Check() error {
 	return nil
 }
 
-func makeNeedResponse(plist []string) *needResponse {
+func makeNeedResponse(pieceID string, plist []string) *needResponse {
 	return &needResponse{
 		Type:     "needResponse",
+		PieceID:  pieceID,
 		PeerList: plist,
 	}
 }

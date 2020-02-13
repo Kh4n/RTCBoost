@@ -6,16 +6,16 @@ interface all {
 
 export interface offerOrAnswer extends all {
 	type: "offer" | "answer"
-	// from: string
-	to: string
-	sdp: string
+	from: string
+    to: string
 	pieceID: string
+	sdp: string
 }
 
 export interface forward extends all {
 	type: "forward"
-	// from: string
-	to: string
+	from: string
+    to: string
 	data: string
 }
 
@@ -33,7 +33,7 @@ export interface action extends all {
 	// peerID: string
 	name: string
 	pieceID: string
-	action: string
+	action: "add" | "remove"
 }
 
 export interface need extends all {
@@ -41,6 +41,7 @@ export interface need extends all {
     pieceID: string
 }
 export interface needResponse extends all {
-	type: "needResponse"
+    type: "needResponse"
+    pieceID: string
 	peerList: Array<string>
 }
