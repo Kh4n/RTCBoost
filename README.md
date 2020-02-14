@@ -25,3 +25,11 @@ I will list some here:
 - Peer connection stability isn't the greatest
 - Browser support for this kind of stuff is not great either, but definitely not impossible
 - Tons and tons of edge cases considering you are managing 3+ connections at all times, as a result of the hybrid peer/server approach this is using
+
+Next steps:
+- Use WebRTC peer library. Using plain WebRTC was a good experience, but unless I make my own peer library it is not sustainable
+- Either use bittorrent protocol or come up with own to allow peers to communicate (can't be JSON because binary limitation)
+- Find a clever way to store the file. I have a few ideas how to solve this
+- Make server extensible so the backend storage can be swapped for something like Redis in practice
+- Edge case handling (server disconnect, peer disconnect, signal server disconnect, and any combination at any time)
+- Find and use a fast MD5 hash to verify, either on server or on client
