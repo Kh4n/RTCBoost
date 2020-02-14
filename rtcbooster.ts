@@ -98,32 +98,7 @@ export class RTCBooster {
         let options: RTCDataChannelInit = {negotiated: true, id: 0}
         p.datachannel = p.createDataChannel("dat", options)
         let files = this.files
-        p.datachannel.onmessage = function(ev: MessageEvent) {
-            log("Recieved peer MessageEvent:")
-            console.log(ev)
-            let msg = JSON.parse(ev.data)
-            let t: types.clientMsg = msg.type
-            switch(t) {
-                case "request": {
-                    let rq: types.request = msg
-                    let pieceNum = parseInt(rq.pieceID.split(':').pop())
-                    let s = files.get(rq.name).data.get(pieceNum)
-                    let rsp: types.response = {
-                        type: "response",
-                        name: rq.name,
-                        pieceID: rq.pieceID,
-                        data: "placeholder",
-                    }
-                    this.send(JSON.stringify(rsp))
-                    break
-                }
-                case "response": {
-                    let rsp: types.response = msg
-                    let pieceNum = parseInt(rsp.pieceID.split(':').pop())
-                    files.get(rsp.name).data.set(pieceNum, rsp.data)
-                }
-            }
-        }
+        p.datachannel.onmessage = this.generatePeerMessageHandler()
     }
 
     async handleAnswer(rsp: types.offerOrAnswer) {
@@ -163,32 +138,7 @@ export class RTCBooster {
                 this.send(JSON.stringify(rq))
             }
             let files = this.files
-            p.datachannel.onmessage = function(ev: MessageEvent) {
-                log("Recieved peer MessageEvent:")
-                console.log(ev)
-                let msg = JSON.parse(ev.data)
-                let t: types.clientMsg = msg.type
-                switch(t) {
-                    case "request": {
-                        let rq: types.request = msg
-                        let pieceNum = parseInt(rq.pieceID.split(':').pop())
-                        let s = files.get(rq.name).data.get(pieceNum)
-                        let rsp: types.response = {
-                            type: "response",
-                            name: rq.name,
-                            pieceID: rq.pieceID,
-                            data: s
-                        }
-                        this.send(JSON.stringify(rsp))
-                        break
-                    }
-                    case "response": {
-                        let rsp: types.response = msg
-                        let pieceNum = parseInt(rsp.pieceID.split(':').pop())
-                        files.get(rsp.name).data.set(pieceNum, rsp.data)
-                    }
-                }
-            }
+            p.datachannel.onmessage = this.generatePeerMessageHandler()
 
             const offer = await p.createOffer()
             await p.setLocalDescription(offer)
@@ -202,7 +152,8 @@ export class RTCBooster {
                 sdp: p.localDescription.sdp
             }
             this.signalToServer(o)
-        } else {
+        } 
+        else if (rsp.peerList.length > 0) {
             log("Sending request to peer immediately")
             let dc = this.peerConns.get(rsp.peerList[0]).datachannel
             let rq: types.request = {
@@ -234,7 +185,8 @@ export class RTCBooster {
                         type: "response",
                         name: rq.name,
                         pieceID: rq.pieceID,
-                        data: s
+                        // TODO: fix
+                        data: "placeholder",
                     }
                     this.send(JSON.stringify(rsp))
                     break
@@ -243,6 +195,15 @@ export class RTCBooster {
                     let rsp: types.response = msg
                     let pieceNum = parseInt(rsp.pieceID.split(':').pop())
                     files.get(rsp.name).data.set(pieceNum, rsp.data)
+                    let a: types.action = {
+                        type: "action",
+                        name: rsp.name,
+                        pieceID: rsp.pieceID,
+                        action: "add",
+                    }
+                    this.signalToServer(a)
+                    log("Made action:")
+                    console.log(a)
                 }
             }
         }
