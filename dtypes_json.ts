@@ -25,6 +25,7 @@ export interface info extends all {
 }
 export interface infoResponse extends all {
     type: "infoResponse"
+    name: string
     pieceList: Array<string>
 }
 
@@ -38,10 +39,28 @@ export interface action extends all {
 
 export interface need extends all {
     type: "need"
+    name: string
     pieceID: string
 }
 export interface needResponse extends all {
     type: "needResponse"
+    name: string
     pieceID: string
 	peerList: Array<string>
+}
+
+// client only types
+
+export type clientMsg = "request" | "response"
+
+export interface request {
+    type: "request"
+    name: string
+    pieceID: string
+}
+export interface response {
+    type: "response"
+    name: string
+    pieceID: string
+    data: string
 }

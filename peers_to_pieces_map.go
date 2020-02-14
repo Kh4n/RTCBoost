@@ -80,12 +80,15 @@ func (p *peersToPieces) peerRemoveAll(peer string) error {
 	return nil
 }
 
-func (p *peersToPieces) getPeersForPiece(piece string) []string {
+func (p *peersToPieces) getPeersForPiece(piece string, peerID string) []string {
 	tmp, _ := p.pieceToPeers.LoadOrStore(piece, make(map[string]struct{}))
 	peers, _ := tmp.(map[string]struct{})
 
 	ret := make([]string, 0, len(peers))
 	for peer := range peers {
+		if peer == peerID {
+			continue
+		}
 		ret = append(ret, peer)
 	}
 	return ret

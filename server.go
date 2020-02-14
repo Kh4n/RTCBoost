@@ -134,7 +134,7 @@ func (s *server) handleText(c *websocket.Conn, uid string, msg []byte) error {
 	case "action":
 		err = s.handleAction(uid, msg)
 	case "need":
-		err = s.handleNeed(c, msg)
+		err = s.handleNeed(c, uid, msg)
 
 	default:
 		e := fmt.Sprint("unknown data recieved: ", a)
@@ -144,12 +144,12 @@ func (s *server) handleText(c *websocket.Conn, uid string, msg []byte) error {
 	return err
 }
 
-func (s *server) handleNeed(c *websocket.Conn, msg []byte) error {
+func (s *server) handleNeed(c *websocket.Conn, uid string, msg []byte) error {
 	n, err := readNeed(msg)
 	if err != nil {
 		return err
 	}
-	nr := makeNeedResponse(n.PieceID, s.pp.getPeersForPiece(n.PieceID))
+	nr := makeNeedResponse(n.PieceID, n.Name, s.pp.getPeersForPiece(n.PieceID, uid))
 	return c.WriteJSON(nr)
 }
 
@@ -185,7 +185,7 @@ func (s *server) handleInfo(c *websocket.Conn, msg []byte) error {
 	for p := range pieces {
 		pieceList = append(pieceList, p)
 	}
-	resp := makeInfoResponse(pieceList)
+	resp := makeInfoResponse(inf.Name, pieceList)
 	return c.WriteJSON(resp)
 }
 

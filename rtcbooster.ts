@@ -1,11 +1,13 @@
 import * as types from "./dtypes_json"
 
 class peerConn extends RTCPeerConnection {
+    waiting: Array<string> = []
     datachannel: RTCDataChannel
 }
 
+// TODO: figure out how to send array buffers over reliably
 class file {
-    data: Map<number, Blob> = new Map<number, Blob>()
+    data: Map<number, string> = new Map<number, string>()
 }
 
 export class RTCBooster {
@@ -95,6 +97,33 @@ export class RTCBooster {
         this.signalToServer(a)
         let options: RTCDataChannelInit = {negotiated: true, id: 0}
         p.datachannel = p.createDataChannel("dat", options)
+        let files = this.files
+        p.datachannel.onmessage = function(ev: MessageEvent) {
+            log("Recieved peer MessageEvent:")
+            console.log(ev)
+            let msg = JSON.parse(ev.data)
+            let t: types.clientMsg = msg.type
+            switch(t) {
+                case "request": {
+                    let rq: types.request = msg
+                    let pieceNum = parseInt(rq.pieceID.split(':').pop())
+                    let s = files.get(rq.name).data.get(pieceNum)
+                    let rsp: types.response = {
+                        type: "response",
+                        name: rq.name,
+                        pieceID: rq.pieceID,
+                        data: "placeholder",
+                    }
+                    this.send(JSON.stringify(rsp))
+                    break
+                }
+                case "response": {
+                    let rsp: types.response = msg
+                    let pieceNum = parseInt(rsp.pieceID.split(':').pop())
+                    files.get(rsp.name).data.set(pieceNum, rsp.data)
+                }
+            }
+        }
     }
 
     async handleAnswer(rsp: types.offerOrAnswer) {
@@ -121,6 +150,45 @@ export class RTCBooster {
 
             let options: RTCDataChannelInit = {negotiated: true, id: 0}
             p.datachannel = p.createDataChannel("dat", options)
+            p.datachannel.onopen = function(_ev: Event) {
+                log(p.waiting)
+                while (p.waiting.length != 0) {
+                    this.send(p.waiting.pop())
+                }
+                let rq: types.request = {
+                    type: "request",
+                    name: rsp.name,
+                    pieceID: rsp.pieceID
+                }
+                this.send(JSON.stringify(rq))
+            }
+            let files = this.files
+            p.datachannel.onmessage = function(ev: MessageEvent) {
+                log("Recieved peer MessageEvent:")
+                console.log(ev)
+                let msg = JSON.parse(ev.data)
+                let t: types.clientMsg = msg.type
+                switch(t) {
+                    case "request": {
+                        let rq: types.request = msg
+                        let pieceNum = parseInt(rq.pieceID.split(':').pop())
+                        let s = files.get(rq.name).data.get(pieceNum)
+                        let rsp: types.response = {
+                            type: "response",
+                            name: rq.name,
+                            pieceID: rq.pieceID,
+                            data: s
+                        }
+                        this.send(JSON.stringify(rsp))
+                        break
+                    }
+                    case "response": {
+                        let rsp: types.response = msg
+                        let pieceNum = parseInt(rsp.pieceID.split(':').pop())
+                        files.get(rsp.name).data.set(pieceNum, rsp.data)
+                    }
+                }
+            }
 
             const offer = await p.createOffer()
             await p.setLocalDescription(offer)
@@ -134,12 +202,59 @@ export class RTCBooster {
                 sdp: p.localDescription.sdp
             }
             this.signalToServer(o)
+        } else {
+            log("Sending request to peer immediately")
+            let dc = this.peerConns.get(rsp.peerList[0]).datachannel
+            let rq: types.request = {
+                type: "request",
+                name: rsp.name,
+                pieceID: rsp.pieceID
+            }
+            if (dc.readyState != "open") {
+                this.peerConns.get(rsp.peerList[0]).waiting.push(JSON.stringify(rq))
+            } else {
+                dc.send(JSON.stringify(rq))
+            }
+        }
+    }
+
+    generatePeerMessageHandler() {
+        let files = this.files
+        return function(ev: MessageEvent) {
+            log("Recieved peer MessageEvent:")
+            console.log(ev)
+            let msg = JSON.parse(ev.data)
+            let t: types.clientMsg = msg.type
+            switch(t) {
+                case "request": {
+                    let rq: types.request = msg
+                    let pieceNum = parseInt(rq.pieceID.split(':').pop())
+                    let s = files.get(rq.name).data.get(pieceNum)
+                    let rsp: types.response = {
+                        type: "response",
+                        name: rq.name,
+                        pieceID: rq.pieceID,
+                        data: s
+                    }
+                    this.send(JSON.stringify(rsp))
+                    break
+                }
+                case "response": {
+                    let rsp: types.response = msg
+                    let pieceNum = parseInt(rsp.pieceID.split(':').pop())
+                    files.get(rsp.name).data.set(pieceNum, rsp.data)
+                }
+            }
         }
     }
 
     handleInfoResponse(rsp: types.infoResponse) {
         rsp.pieceList.forEach(piece => {
-            let n: types.need = {type: "need", pieceID: piece}
+            let n: types.need = {
+                type: "need",
+                name: rsp.name,
+                pieceID: piece,
+            }
             this.signalToServer(n)
         });
     }
@@ -172,33 +287,33 @@ export class RTCBooster {
         }.bind(this)
     }
  
-    download(fname: string, addrs: Array<string>) {
-        this.files.set(fname, new file())
-        let info: types.info = {type: "info", name: fname}
-        this.signalToServer(info)
-
-        for (var i = 0; i < addrs.length; ++i) {
-            if (this.files.get(fname).data.has(i)) {
-                continue
-            }
-            var xhr = new XMLHttpRequest()
-            xhr.open("get", addrs[i])
-            xhr.responseType = "blob"
-            let curi = i
-            xhr.onload = function() {
-                this.files.get(fname).data.set(curi, xhr.response)
-                let a: types.action = {
-                    type: "action",
-                    name: fname,
-                    pieceID: fname + curi,
-                    action: "add",
-                }
-                this.signalToServer(a)
-                log("Made action:")
-                console.log(a)
-            }.bind(this)
-            xhr.send()
+    download(fname: string, addr: string, pieceNum: number) {
+        if (!this.files.has(fname)) {
+            this.files.set(fname, new file())
+            let info: types.info = {type: "info", name: fname}
+            this.signalToServer(info)
         }
+        if (this.files.get(fname).data.has(pieceNum)) {
+            log("Skipped pieceNum " + pieceNum)
+            return
+        }
+
+        var xhr = new XMLHttpRequest()
+        xhr.open("get", addr)
+        xhr.responseType = "text"
+        xhr.onload = function() {
+            this.files.get(fname).data.set(pieceNum, xhr.response)
+            let a: types.action = {
+                type: "action",
+                name: fname,
+                pieceID: fname + ':' + pieceNum,
+                action: "add",
+            }
+            this.signalToServer(a)
+            log("Made action:")
+            console.log(a)
+        }.bind(this)
+        xhr.send()
     }
 }
 

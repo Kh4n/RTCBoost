@@ -30,6 +30,7 @@ type info struct {
 }
 type infoResponse struct {
 	Type      string   `json:"type"`
+	Name      string   `json:"name"`
 	PieceList []string `json:"pieceList"`
 }
 
@@ -43,10 +44,12 @@ type action struct {
 
 type need struct {
 	Type    string `json:"type"`
+	Name    string `json:"name"`
 	PieceID string `json:"pieceID"`
 }
 type needResponse struct {
 	Type     string   `json:"type"`
+	Name     string   `json:"name"`
 	PieceID  string   `json:"pieceID"`
 	PeerList []string `json:"peerList"`
 }
@@ -134,9 +137,10 @@ func (m *info) Check() error {
 	return nil
 }
 
-func makeInfoResponse(plist []string) *infoResponse {
+func makeInfoResponse(name string, plist []string) *infoResponse {
 	return &infoResponse{
 		Type:      "infoResponse",
+		Name:      name,
 		PieceList: plist,
 	}
 }
@@ -189,15 +193,19 @@ func readNeed(msg []byte) (*need, error) {
 }
 
 func (m *need) Check() error {
+	if m.Name == "" {
+		return errors.New("no Name field in JSON with type need")
+	}
 	if m.PieceID == "" {
 		return errors.New("no PieceID field in JSON with type need")
 	}
 	return nil
 }
 
-func makeNeedResponse(pieceID string, plist []string) *needResponse {
+func makeNeedResponse(pieceID string, name string, plist []string) *needResponse {
 	return &needResponse{
 		Type:     "needResponse",
+		Name:     name,
 		PieceID:  pieceID,
 		PeerList: plist,
 	}
