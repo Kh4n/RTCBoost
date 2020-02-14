@@ -3,7 +3,7 @@
 *.js.map
 __debug_bin
 
-example
+example/example
 RTCBoost
 
 bigfile.txt
