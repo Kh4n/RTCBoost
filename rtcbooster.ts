@@ -8,7 +8,7 @@ class file {
     data: Map<number, Blob> = new Map<number, Blob>()
 }
 
-class RTCBooster {
+export class RTCBooster {
     peerConns: Map<string, peerConn>
     signalingServer: WebSocket
     files: Map<string, file>
@@ -24,7 +24,7 @@ class RTCBooster {
         this.signalingServer.onclose = function(_evt) {
             log("Disconnected from signaling server")
         }
-        this.signalingServer.onmessage = this.handleSignalMessage
+        this.signalingServer.onmessage = this.handleSignalMessage.bind(this)
         this.signalingServer.onerror = function(evt: Event) {
             log("Error connecting to signaling server: " + evt)
         }
@@ -139,13 +139,12 @@ class RTCBooster {
 
     handleInfoResponse(rsp: types.infoResponse) {
         rsp.pieceList.forEach(piece => {
-            let n: types.need = {type: "need", pieceID:  piece}
+            let n: types.need = {type: "need", pieceID: piece}
             this.signalToServer(n)
         });
     }
 
     generateICECandidateHandler(remotePeerID: string) {
-        let s2s = this.signalToServer
         return function(ev: RTCPeerConnectionIceEvent) {
             if (ev.candidate) {
                 log("Outgoing ICE candidate:")
@@ -156,27 +155,25 @@ class RTCBooster {
                     to: remotePeerID,
                     data: JSON.stringify(ev.candidate),
                 }
-                s2s(f)
+                this.signalToServer(f)
             }
-        }
+        }.bind(this)
     }
 
     generateGatheringStateChangeHandler(remotePeerID: string) {
-        let pcs = this.peerConns
         return function(_ev: Event) {
-            log("Gathering state: " + pcs.get(remotePeerID).iceGatheringState)
-        }
+            log("Gathering state: " + this.peerConns.get(remotePeerID).iceGatheringState)
+        }.bind(this)
     }
 
     generateConnectionStateChangeHandler(remotePeerID: string) {
-        let pcs = this.peerConns
         return function(_ev: Event) {
-            log("ICE connection state: " + pcs.get(remotePeerID).iceConnectionState)
-        }
+            log("ICE connection state: " + this.peerConns.get(remotePeerID).iceConnectionState)
+        }.bind(this)
     }
  
     download(fname: string, addrs: Array<string>) {
-        this.files[fname] = new file()
+        this.files.set(fname, new file())
         let info: types.info = {type: "info", name: fname}
         this.signalToServer(info)
 
@@ -187,18 +184,19 @@ class RTCBooster {
             var xhr = new XMLHttpRequest()
             xhr.open("get", addrs[i])
             xhr.responseType = "blob"
-            let files = this.files
-            let s2s = this.signalToServer
+            let curi = i
             xhr.onload = function() {
-                files.get(fname).data.set(i, xhr.response)
+                this.files.get(fname).data.set(curi, xhr.response)
                 let a: types.action = {
                     type: "action",
                     name: fname,
-                    pieceID: fname + i,
+                    pieceID: fname + curi,
                     action: "add",
                 }
-                s2s(a)
-            }
+                this.signalToServer(a)
+                log("Made action:")
+                console.log(a)
+            }.bind(this)
             xhr.send()
         }
     }

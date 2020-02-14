@@ -11,7 +11,7 @@ type peersToPieces struct {
 	pieceToPeers sync.Map
 }
 
-func (p *peersToPieces) peerHas(peer string, piece string) error {
+func (p *peersToPieces) peerAdd(peer string, piece string) error {
 	tmp, _ := p.peerToPieces.LoadOrStore(peer, make(map[string]struct{}))
 	pieces, ok := tmp.(map[string]struct{})
 	if !ok {

@@ -2,5 +2,8 @@
 *.js
 *.js.map
 __debug_bin
-server
+
+example
 RTCBoost
+
+bigfile.txt

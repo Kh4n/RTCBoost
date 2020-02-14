@@ -17,12 +17,32 @@ type websocketRWLock struct {
 	mutex sync.Mutex
 }
 
+type files struct {
+	inner sync.Map
+}
+
+func (f *files) add(fname string, pieceID string) error {
+	tmp, _ := f.inner.LoadOrStore(fname, make(map[string]struct{}))
+	pieces, ok := tmp.(map[string]struct{})
+	if !ok {
+		return errors.New("unknown datatype in files struct")
+	}
+	pieces[pieceID] = struct{}{}
+	return nil
+}
+
+func (f *files) get(fname string) map[string]struct{} {
+	tmp, _ := f.inner.LoadOrStore(fname, make(map[string]struct{}))
+	pieces, _ := tmp.(map[string]struct{})
+	return pieces
+}
+
 type server struct {
 	upgrader *websocket.Upgrader
 	peers    map[string]*websocketRWLock
 
 	pp   peersToPieces
-	info map[string]map[string]struct{}
+	info files
 }
 
 func newServer() *server {
@@ -139,8 +159,12 @@ func (s *server) handleAction(uid string, msg []byte) error {
 		return err
 	}
 	if a.Action == "add" {
-		s.info[a.Name][a.PieceID] = struct{}{}
-		err = s.pp.peerHas(a.PeerID, a.PieceID)
+		log.Println("Adding piece:", a.PieceID)
+		err = s.info.add(a.Name, a.PieceID)
+		if err != nil {
+			return err
+		}
+		err = s.pp.peerAdd(a.PeerID, a.PieceID)
 	} else {
 		err = s.pp.peerRemove(a.PeerID, a.PieceID)
 	}
@@ -156,7 +180,7 @@ func (s *server) handleInfo(c *websocket.Conn, msg []byte) error {
 		return err
 	}
 
-	pieces := s.info[inf.Name]
+	pieces := s.info.get(inf.Name)
 	pieceList := make([]string, 0, len(pieces))
 	for p := range pieces {
 		pieceList = append(pieceList, p)
