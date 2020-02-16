@@ -1,23 +1,33 @@
 import * as types from "./dtypes_json"
-
-class peerConn extends RTCPeerConnection {
-    waiting: Array<string> = []
-    datachannel: RTCDataChannel
-}
+import Peer from "simple-peer"
 
 // TODO: figure out how to send array buffers over reliably
-class file {
-    data: Map<number, string> = new Map<number, string>()
+class pieceFile {
+    data: Record<number, ArrayBuffer> = {}
+    onserverdownloadedfile: (pieceNum: number) => void = function(_){}
+
+    availPieces(): Array<number> {
+        let pieces = []
+        for (let num in this.data) {
+            pieces.push(num)
+        }
+        return pieces
+    }
 }
 
 export class RTCBooster {
-    peerConns: Map<string, peerConn>
     signalingServer: WebSocket
-    files: Map<string, file>
 
-    constructor(signalAddr: string) {
-        this.peerConns = new Map<string, peerConn>()
-        this.files = new Map<string, file>()
+    peerID: string
+    swarm: Record<string, Peer.Instance>
+
+    file: pieceFile
+    fileName: string
+
+    constructor(signalAddr: string, fname: string) {
+        this.swarm = {}
+        this.file = new pieceFile()
+        this.fileName = fname
 
         this.signalingServer = new WebSocket(signalAddr)
         this.signalingServer.onopen = function(_evt) {
@@ -30,6 +40,13 @@ export class RTCBooster {
         this.signalingServer.onerror = function(evt: Event) {
             log("Error connecting to signaling server: " + evt)
         }
+
+        let j: types.join = {
+            type: "join",
+            fileID: fname
+        }
+        this.signalToServer(j)
+        log("Trying to join swarm with fileID:", j)
     }
 
     signalToServer(msg: any) {
@@ -42,30 +59,19 @@ export class RTCBooster {
         console.log(msg)
         let t: types.msgTypes = msg.type
         switch(t) {
-            case "offer": {
-                let rsp: types.offerOrAnswer = msg
-                this.handleOffer(rsp)
-                break
-            }
-            case "answer": {
-                let rsp: types.offerOrAnswer = msg
-                this.handleAnswer(rsp)
-                break
-            }
             case "forward": {
                 let rsp: types.forward = msg
-                this.handleForward(rsp)
+                if (!(rsp.from in this.swarm)) {
+                    this.swarm[rsp.from] = this.makeNewPeer(rsp.from, false)
+                }
+                this.swarm[rsp.from].signal(rsp.data)
                 break
             }
-            
-            case "infoResponse": {
-                let rsp: types.infoResponse = msg
-                this.handleInfoResponse(rsp)
-                break
-            }
-            case "needResponse": {
-                let rsp: types.needResponse = msg
-                this.handleNeedResponse(rsp)
+
+            case "joinResponse": {
+                let rsp: types.joinResponse = msg
+                this.peerID = rsp.peerID
+                this.handleJoinResponse(rsp)
                 break
             }
             
@@ -76,203 +82,96 @@ export class RTCBooster {
         }
     }
 
-    async handleOffer(rsp: types.offerOrAnswer) {
-        let p: peerConn = new peerConn()
-        
-        this.peerConns.set(rsp.from, p)
-        p.onicecandidate = this.generateICECandidateHandler(rsp.from)
-        p.onconnectionstatechange = this.generateConnectionStateChangeHandler(rsp.from)
-        p.onicegatheringstatechange = this.generateGatheringStateChangeHandler(rsp.from)
-        
-        let desc = new RTCSessionDescription(rsp)
-        await p.setRemoteDescription(desc)
-        await p.setLocalDescription(await p.createAnswer())
-        let a: types.offerOrAnswer = {
-            type: "answer",
-            from: "",
-            to: rsp.from,
-            pieceID: rsp.pieceID,
-            sdp: p.localDescription.sdp,
-        }
-        this.signalToServer(a)
-        let options: RTCDataChannelInit = {negotiated: true, id: 0}
-        p.datachannel = p.createDataChannel("dat", options)
-        let files = this.files
-        p.datachannel.onmessage = this.generatePeerMessageHandler()
-    }
-
-    async handleAnswer(rsp: types.offerOrAnswer) {
-        let pc = this.peerConns.get(rsp.from)
-        let desc = new RTCSessionDescription(rsp)
-        await pc.setRemoteDescription(desc)
-    }
-
-    handleForward(rsp: types.forward) {
-        // TODO: error handling :)
-        let newICECandidate = JSON.parse(rsp.data)
-        this.peerConns.get(rsp.from).addIceCandidate(newICECandidate)
-    }
-
-    async handleNeedResponse(rsp: types.needResponse) {
-        // TODO: try to get same peer for as many as possible. right now we just grab the 
-        // first remote peer they send us. might be better done on server side.
-        if (rsp.peerList.length > 0 && !this.peerConns.has(rsp.peerList[0])) {
-            let p: peerConn = new peerConn()
-            this.peerConns.set(rsp.peerList[0], p)
-            p.onicecandidate = this.generateICECandidateHandler(rsp.peerList[0])
-            p.onconnectionstatechange = this.generateConnectionStateChangeHandler(rsp.peerList[0])
-            p.onicegatheringstatechange = this.generateGatheringStateChangeHandler(rsp.peerList[0])
-
-            let options: RTCDataChannelInit = {negotiated: true, id: 0}
-            p.datachannel = p.createDataChannel("dat", options)
-            p.datachannel.onopen = function(_ev: Event) {
-                log(p.waiting)
-                while (p.waiting.length != 0) {
-                    this.send(p.waiting.pop())
-                }
-                let rq: types.request = {
-                    type: "request",
-                    name: rsp.name,
-                    pieceID: rsp.pieceID
-                }
-                this.send(JSON.stringify(rq))
-            }
-            let files = this.files
-            p.datachannel.onmessage = this.generatePeerMessageHandler()
-
-            const offer = await p.createOffer()
-            await p.setLocalDescription(offer)
-            log("Set our local description to:")
-            console.log(offer)
-            let o: types.offerOrAnswer = {
-                type: "offer",
-                from: "",
-                to: rsp.peerList[0],
-                pieceID: rsp.pieceID,
-                sdp: p.localDescription.sdp
-            }
-            this.signalToServer(o)
-        } 
-        else if (rsp.peerList.length > 0) {
-            log("Sending request to peer immediately")
-            let dc = this.peerConns.get(rsp.peerList[0]).datachannel
-            let rq: types.request = {
-                type: "request",
-                name: rsp.name,
-                pieceID: rsp.pieceID
-            }
-            if (dc.readyState != "open") {
-                this.peerConns.get(rsp.peerList[0]).waiting.push(JSON.stringify(rq))
-            } else {
-                dc.send(JSON.stringify(rq))
-            }
-        }
-    }
-
-    generatePeerMessageHandler() {
-        let files = this.files
-        return function(ev: MessageEvent) {
-            log("Recieved peer MessageEvent:")
-            console.log(ev)
-            let msg = JSON.parse(ev.data)
-            let t: types.clientMsg = msg.type
-            switch(t) {
-                case "request": {
-                    let rq: types.request = msg
-                    let pieceNum = parseInt(rq.pieceID.split(':').pop())
-                    let s = files.get(rq.name).data.get(pieceNum)
-                    let rsp: types.response = {
-                        type: "response",
-                        name: rq.name,
-                        pieceID: rq.pieceID,
-                        // TODO: fix
-                        data: "placeholder",
-                    }
-                    this.send(JSON.stringify(rsp))
-                    break
-                }
-                case "response": {
-                    let rsp: types.response = msg
-                    let pieceNum = parseInt(rsp.pieceID.split(':').pop())
-                    files.get(rsp.name).data.set(pieceNum, rsp.data)
-                    let a: types.action = {
-                        type: "action",
-                        name: rsp.name,
-                        pieceID: rsp.pieceID,
-                        action: "add",
-                    }
-                    this.signalToServer(a)
-                    log("Made action:")
-                    console.log(a)
-                }
-            }
-        }
-    }
-
-    handleInfoResponse(rsp: types.infoResponse) {
-        rsp.pieceList.forEach(piece => {
-            let n: types.need = {
-                type: "need",
-                name: rsp.name,
-                pieceID: piece,
-            }
-            this.signalToServer(n)
+    handleJoinResponse(rsp: types.joinResponse) {
+        rsp.peerList.forEach(remotePeerID => {
+            this.swarm[remotePeerID] = this.makeNewPeer(remotePeerID)
         });
     }
 
-    generateICECandidateHandler(remotePeerID: string) {
-        return function(ev: RTCPeerConnectionIceEvent) {
-            if (ev.candidate) {
-                log("Outgoing ICE candidate:")
-                console.log(ev.candidate)
+    makeNewPeer(remotePeerID: string, initiator: boolean = true): Peer.Instance {
+        let p = new Peer({initiator: initiator})
+        if (initiator) {
+            p.on("signal", function(data: Peer.SignalData) {
                 let f: types.forward = {
                     type: "forward",
-                    from: "",
+                    from: this.peerID,
                     to: remotePeerID,
-                    data: JSON.stringify(ev.candidate),
+                    data: JSON.stringify(data)
                 }
                 this.signalToServer(f)
+            }.bind(this))
+        }
+
+        p.on("connect", function() {
+            let n: types.have = {
+                type: "have",
+                pieceNums: this.file.availPieces()
+            }
+            p.send(JSON.stringify(n))
+        }.bind(this))
+
+        p.on("data", function(chunk: ArrayBuffer) {
+
+        }.bind(this))
+        
+        p.on("close", function() {
+            log("Peer with remote ID " + remotePeerID + " disconnected")
+        })
+
+        return p
+    }
+
+    generatePeerDataHandler(remotePeer: Peer.Instance): (chunk: Peer.SimplePeerData) => void {
+        return function(chunk: Peer.SimplePeerData) {
+            switch (typeof chunk) {
+                case "string": {
+                    this.handleStringPeerData(remotePeer, chunk as string)
+                }
+                case "object": {
+                    let piece = types.readPiece(chunk as ArrayBuffer)
+                    this.file.data[piece.pieceNum] = piece.data
+                }
+
+                default:
+                    log("Peer sent unknown data", remotePeer)
             }
         }.bind(this)
     }
 
-    generateGatheringStateChangeHandler(remotePeerID: string) {
-        return function(_ev: Event) {
-            log("Gathering state: " + this.peerConns.get(remotePeerID).iceGatheringState)
-        }.bind(this)
-    }
+    handleStringPeerData(remotePeer: Peer.Instance, chunk: string) {
+        let msg = JSON.parse(chunk)
+        let t = msg.type as types.p2pMsgTypes
 
-    generateConnectionStateChangeHandler(remotePeerID: string) {
-        return function(_ev: Event) {
-            log("ICE connection state: " + this.peerConns.get(remotePeerID).iceConnectionState)
-        }.bind(this)
+        switch (t) {
+            case "have": {
+                TODO
+                break
+            }
+            case "need": {
+                let n = msg as types.need
+                for (let pieceNum of n.pieceNums) {
+                    remotePeer.send(types.makePiece(this.file.data[pieceNum], pieceNum))
+                }
+                break
+            }
+
+            default:
+                log("Peer sent unknown data", remotePeer)
+        }
     }
  
-    download(fname: string, addr: string, pieceNum: number) {
-        if (!this.files.has(fname)) {
-            this.files.set(fname, new file())
-            let info: types.info = {type: "info", name: fname}
-            this.signalToServer(info)
-        }
-        if (this.files.get(fname).data.has(pieceNum)) {
-            log("Skipped pieceNum " + pieceNum)
+    download(addr: string, pieceNum: number) {
+        if (pieceNum in this.file.data) {
+            log("Skipping piece " + pieceNum)
             return
         }
 
         var xhr = new XMLHttpRequest()
         xhr.open("get", addr)
-        xhr.responseType = "text"
+        xhr.responseType = "arraybuffer"
         xhr.onload = function() {
-            this.files.get(fname).data.set(pieceNum, xhr.response)
-            let a: types.action = {
-                type: "action",
-                name: fname,
-                pieceID: fname + ':' + pieceNum,
-                action: "add",
-            }
-            this.signalToServer(a)
-            log("Made action:")
-            console.log(a)
+            this.file.data[pieceNum] = xhr.response
+            this.file.onserverdownloadedfile(pieceNum)
         }.bind(this)
         xhr.send()
     }
@@ -280,7 +179,10 @@ export class RTCBooster {
 
 
 
-function log(text) {
+function log(text: string, plainLog?: any) {
     let time = new Date()
     console.log("[" + time.toLocaleTimeString() + "] " + text)
+    if (plainLog) {
+        console.log(plainLog)
+    }
 }

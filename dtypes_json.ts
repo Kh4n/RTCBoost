@@ -1,15 +1,7 @@
-export type msgTypes = "offer" | "answer" | "forward" | "info" | "infoResponse" | "action" | "need" | "needResponse"
+export type msgTypes = "forward" | "join" | "joinResponse"
 
 interface all {
     type: msgTypes
-}
-
-export interface offerOrAnswer extends all {
-	type: "offer" | "answer"
-	from: string
-    to: string
-	pieceID: string
-	sdp: string
 }
 
 export interface forward extends all {
@@ -19,48 +11,51 @@ export interface forward extends all {
 	data: string
 }
 
-export interface info extends all {
-    type: "info"
-    name: string
+export interface join extends all {
+    type: "join"
+    fileID: string
 }
-export interface infoResponse extends all {
-    type: "infoResponse"
-    name: string
-    pieceList: Array<string>
-}
-
-export interface action extends all {
-    type: "action"
-	// peerID: string
-	name: string
-	pieceID: string
-	action: "add" | "remove"
+export interface joinResponse extends all {
+    type: "joinResponse"
+    peerID: string
+    peerList: Array<string>
 }
 
-export interface need extends all {
+// peer to peer types
+export type p2pMsgTypes = "have" | "need" | "piece"
+
+export interface have {
+    type: "have"
+    pieceNums: Array<number>
+}
+
+export interface need {
     type: "need"
-    name: string
-    pieceID: string
-}
-export interface needResponse extends all {
-    type: "needResponse"
-    name: string
-    pieceID: string
-	peerList: Array<string>
+    pieceNums: Array<number>
 }
 
-// client only types
-
-export type clientMsg = "request" | "response"
-
-export interface request {
-    type: "request"
-    name: string
-    pieceID: string
+export interface piece {
+    type: "piece"
+    pieceNum: number
+    data: ArrayBuffer
 }
-export interface response {
-    type: "response"
-    name: string
-    pieceID: string
-    data: string
+
+export function makePiece(piece: ArrayBuffer, num: number): ArrayBuffer {
+    let data = new Uint8Array(piece)
+    let tosend = new Uint8Array(piece.byteLength + 2)
+
+    tosend.set(data)
+    tosend[tosend.length - 2] = num >> 4
+    tosend[tosend.length - 1] = num & 0x0F
+    return tosend.buffer
+}
+
+export function readPiece(chunk: ArrayBuffer): piece {
+    let v = new Uint8Array(chunk)
+    let pieceNum = v[v.length - 1] + (v[v.length - 2] << 4)
+    return {
+        type: "piece",
+        pieceNum: pieceNum,
+        data: v.slice(0, v.length - 1).buffer
+    }
 }

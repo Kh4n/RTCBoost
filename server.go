@@ -38,10 +38,11 @@ func (f *files) get(fname string) map[string]struct{} {
 }
 
 type server struct {
-	upgrader *websocket.Upgrader
-	peers    map[string]*websocketRWLock
+	upgrader  *websocket.Upgrader
+	peers     map[string]*websocketRWLock
+	peersLock sync.Mutex
 
-	pp   peersToPieces
+	sm   swarmManager
 	info files
 }
 
@@ -100,9 +101,12 @@ func (s *server) handleConnection(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) registerPeer(c *websocket.Conn) string {
 	uid := ksuid.New().String()
+	s.peersLock.Lock()
+	defer s.peersLock.Unlock()
 	s.peers[uid] = &websocketRWLock{conn: c}
 	c.SetCloseHandler(func(code int, text string) error {
-		s.pp.peerRemoveAll(uid)
+		s.peersLock.Lock()
+		defer s.peersLock.Unlock()
 		delete(s.peers, uid)
 		log.Println("Removed peer:", uid)
 		return s.handleClose(code, text)
@@ -125,16 +129,9 @@ func (s *server) handleText(c *websocket.Conn, uid string, msg []byte) error {
 	log.Println("Type:", a.Type)
 	switch a.Type {
 	case "forward":
-		err = s.handleForward(uid, msg)
-	case "offer", "answer":
-		err = s.handleOfferOrAnswer(uid, msg)
-
-	case "info":
-		err = s.handleInfo(c, msg)
-	case "action":
-		err = s.handleAction(uid, msg)
-	case "need":
-		err = s.handleNeed(c, uid, msg)
+		err = s.handleForward(msg)
+	case "join":
+		err = s.handleJoin(c, uid, msg)
 
 	default:
 		e := fmt.Sprint("unknown data recieved: ", a)
@@ -144,61 +141,21 @@ func (s *server) handleText(c *websocket.Conn, uid string, msg []byte) error {
 	return err
 }
 
-func (s *server) handleNeed(c *websocket.Conn, uid string, msg []byte) error {
-	n, err := readNeed(msg)
+func (s *server) handleJoin(c *websocket.Conn, uid string, msg []byte) error {
+	n, err := readJoin(msg)
 	if err != nil {
 		return err
 	}
-	nr := makeNeedResponse(n.PieceID, n.Name, s.pp.getPeersForPiece(n.PieceID, uid))
+	peers, err := s.sm.getSwarm(n.FileID, s.peers)
+	if err != nil {
+		return err
+	}
+	nr := makeJoinResponse(uid, peers)
 	return c.WriteJSON(nr)
 }
 
-func (s *server) handleAction(uid string, msg []byte) error {
-	a, err := readAction(uid, msg)
-	if err != nil {
-		return err
-	}
-	if a.Action == "add" {
-		log.Println("Adding piece:", a.PieceID)
-		err = s.info.add(a.Name, a.PieceID)
-		if err != nil {
-			return err
-		}
-		err = s.pp.peerAdd(a.PeerID, a.PieceID)
-	} else {
-		err = s.pp.peerRemove(a.PeerID, a.PieceID)
-	}
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (s *server) handleInfo(c *websocket.Conn, msg []byte) error {
-	inf, err := readInfo(msg)
-	if err != nil {
-		return err
-	}
-
-	pieces := s.info.get(inf.Name)
-	pieceList := make([]string, 0, len(pieces))
-	for p := range pieces {
-		pieceList = append(pieceList, p)
-	}
-	resp := makeInfoResponse(inf.Name, pieceList)
-	return c.WriteJSON(resp)
-}
-
-func (s *server) handleOfferOrAnswer(uid string, msg []byte) error {
-	oa, err := readOfferOrAnswer(uid, msg)
-	if err != nil {
-		return err
-	}
-	return s.writeJSONToPeer(oa, oa.To)
-}
-
-func (s *server) handleForward(uid string, msg []byte) error {
-	f, err := readForward(uid, msg)
+func (s *server) handleForward(msg []byte) error {
+	f, err := readForward(msg)
 	if err != nil {
 		return err
 	}
