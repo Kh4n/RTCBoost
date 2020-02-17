@@ -41,12 +41,15 @@ export interface piecePart {
     data: Uint8Array
 }
 
+// this is admittedly a little confusing, not sure of alternative ways to convey this info
 const peerJSONMsg = 0x0
 const peerUint8Part = 0x1
 const peerUint8LastPart = 0x2
 
 type peerMsgByte = 0x0 | 0x1 | 0x2
 
+// we cannot tell what is being sent over, so we just assume everything is Uint8Array
+// we use a type byte to distinguish between JSON and actual Uint8 data
 export function encodePeerMsg(msg: have | need): ArrayBuffer {
     let s = JSON.stringify(msg)
     let ret = new Uint8Array(s.length + 1)
@@ -57,11 +60,15 @@ export function encodePeerMsg(msg: have | need): ArrayBuffer {
     return ret
 }
 
+// structure: data:pieceNum:partNum:0x1||0x0
+// encoding at the end because it will be faster when array.transfer is available (realloc for JS basically)
 export function encodePiecePart(num: number, part: number, offset: number, length: number, piece: ArrayBuffer): ArrayBuffer {
     let data = (new Uint8Array(piece)).subarray(offset, offset + length)
     let tosend = new Uint8Array(data.byteLength + 5)
 
     tosend.set(data)
+
+    // encode piece num
     tosend[tosend.length - 5] = (num >> 8) & 0xFF
     tosend[tosend.length - 4] = num & 0xFF
 
@@ -72,6 +79,7 @@ export function encodePiecePart(num: number, part: number, offset: number, lengt
     return tosend.buffer
 }
 
+// read a part sent over from a remote peer, and also decide if it was the last part of the transmission
 function readPiecePart(chunk: ArrayBuffer, isLast: boolean): piecePart {
     let v = new Uint8Array(chunk)
     let pieceNum = v[v.length - 4] + (v[v.length - 5] << 8)
@@ -84,6 +92,7 @@ function readPiecePart(chunk: ArrayBuffer, isLast: boolean): piecePart {
     }
 }
 
+// THIS IS UNSAFE FOR UTF strings!! only for ASCII
 function stringToUintList(string: string) {
     let charList = string.split(''),
         uintArray = []

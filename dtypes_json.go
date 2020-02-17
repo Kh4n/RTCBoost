@@ -6,6 +6,7 @@ import (
 	"fmt"
 )
 
+// base json
 type all struct {
 	Type string `json:"type"`
 }

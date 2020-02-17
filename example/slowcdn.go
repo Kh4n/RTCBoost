@@ -1,3 +1,6 @@
+// Example CDN (should probably be called lazy CDN). Originally it was going to throttle, but that does not really make sense
+// for the use case
+
 package main
 
 import (

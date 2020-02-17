@@ -1,5 +1,6 @@
 import { RTCBooster } from "../rtcbooster"
 
+// the booster to use (1 booster per file currently)
 var booster: RTCBooster = null
 var downloadButton: HTMLButtonElement = null
 window.addEventListener("load", function(_evt) {
@@ -19,10 +20,12 @@ function connect() {
         d.style.backgroundColor = "green"
     }
     booster.onsignalserverconnect = function() {
+        // it is clients job to not call RTCBooster.download until the booster is ready
         downloadButton.disabled = false
     }
 }
 
+// simulating a video download: we request the CDN as slowly as possible, while the booster aggressively downloads
 function startDownload() {
     for (var i = 0; i < 10; i++) {
         let curi = i
@@ -30,10 +33,4 @@ function startDownload() {
             booster.download("/bigfile?part=" + curi, curi)
         }, i*1000)
     }
-}
-
-function getURL(href: string) {
-    var l = document.createElement("a")
-    l.href = href
-    return l
 }

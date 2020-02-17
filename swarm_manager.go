@@ -1,3 +1,8 @@
+// A set of structures to manage swarms, like joining, removing etc.
+// Typically this is a many to many relationship, but I am only using a one to many relationship:
+// everytime a swarm is requested, we clean it by removing inactive peers and then send it, instead of
+// removing a peer from each swarm everytime the disconnect. This greatly simplifies code
+
 package main
 
 import (
@@ -27,6 +32,7 @@ func (s *swarm) remove(peerID string) {
 	s.mutex.Unlock()
 }
 
+// we need peers that are online so we can clean them up as we go
 func (s *swarm) getAll(peersOnline map[string]*websocketRWLock) []string {
 	ret := make([]string, 0, len(s.peers))
 	for p := range s.peers {
@@ -41,6 +47,8 @@ func (s *swarm) getAll(peersOnline map[string]*websocketRWLock) []string {
 	return ret
 }
 
+// use case #2 for sync.Map accoring to docs: "when multiple goroutines read, write, and overwrite entries for disjoint sets of keys"
+// this matches that use case (many different swarms)
 type swarmManager struct {
 	fileToPeers sync.Map
 }

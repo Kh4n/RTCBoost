@@ -1,27 +1,44 @@
 import * as types from "./dtypes_json"
 import Peer from "simple-peer"
 
+// data structure to keep track of a file made up of separate pieces
 class pieceFile {
+    // no need for Map, as we dont need ordering on iteration
     data: Record<number, ArrayBuffer> = {}
+    // need to distinguish between what is being attempted and what is being done, as a piece in data is
+    // fully allocated when the first part arrives, which means it is in data before it is available
     attempting: Set<number> = new Set<number>()
+
+    // keep track of ordering
     nextPiece: number = 0
     piecesDownloaded: number = 0
     pieceLength: number
     totalPieces: number
 
+    // fires when file is completely downloaded. also assembles file into a blob
     onfilecomplete: (file: Blob) => void = function(_) {}
+
+    // when any piece is downloaded
     onpiece: (pieceNum: number, piece: ArrayBuffer) => void = function(_1, _2) {}
+
+    // when the next piece in order is downloaded
+    // can fire repeatedly in certain circumstances: 
+    // eg piece 3, 2, 1 downloaded, it wont fire, and the once 0 is downloaded it fires 4 times for 0, 1, 2, 3
     onnextpiece: (piece: ArrayBuffer) => void = function(_) {}
 
+    // if totalPieces is negative, we dont know how many pieces there are, and onfilecomplete will never fire
     constructor(pieceLength: number, totalPieces: number) {
         this.pieceLength = pieceLength
         this.totalPieces = totalPieces
     }
 
+    // add part of a piece
     addPiecePart(pp: types.piecePart) {
+        // server beat us to it
         if (this.isCompleted(pp.pieceNum)) {
             return
         }
+        // allocate entire piece
         if (!(pp.pieceNum in this.data)) {
             this.attempt(pp.pieceNum)
             this.data[pp.pieceNum] = new ArrayBuffer(this.pieceLength)
@@ -34,6 +51,8 @@ class pieceFile {
         let byteView = new Uint8Array(this.data[pp.pieceNum])
         byteView.set(pp.data, offset)
 
+        // transmission is done in order, so when we recieve the last part, we know that the download is finished
+        // if that becomes an issue, we can always just keep track of each download separately 
         if (pp.type == "piecePartLast") {
             this.notifyPiece(pp.pieceNum, this.data[pp.pieceNum])
         }
@@ -50,8 +69,8 @@ class pieceFile {
         this.attempting.delete(pieceNum)
 
         if (pieceNum == this.nextPiece) {
-            this.onnextpiece(piece)
-            while (this.nextPiece in this.data) {
+            while (this.isCompleted(this.nextPiece)) {
+                this.onnextpiece(this.data[this.nextPiece])
                 ++this.nextPiece
             }
         }
@@ -71,6 +90,8 @@ class pieceFile {
         return this.attempting.has(pieceNum) || (pieceNum in this.data)
     }
 
+    // only 60 seconds to download any piece, after that maybe try from another peer
+    // probably need to make a better way to do this
     attempt(pieceNum: number) {
         this.attempting.add(pieceNum)
         setTimeout(function() {
@@ -104,6 +125,7 @@ export class RTCBooster {
     onpiece: (pieceNum: number, piece: ArrayBuffer) => void = function(n, p) { log("Downloaded piece " + n, p) }
     onnextpiece: (piece: ArrayBuffer) => void = function(p) { log("Downloaded next piece", p) }
 
+    // client should hook their download call to this, or they can call download immediately and it will connect ASAP
     onsignalserverconnect: () => void = function() { log("Connected to signaling server") }
 
     constructor(signalAddr: string, fname: string, pieceLength: number, totalPieces: number = -1) {
@@ -113,6 +135,7 @@ export class RTCBooster {
             this.onfilecomplete(file)
         }.bind(this)
 
+        // alert swarm if we have a new piece
         this.file.onpiece = function(pieceNum: number, piece: ArrayBuffer) {
             this.onpiece(pieceNum, piece)
             let availPieces = this.file.availPieces()
@@ -158,6 +181,7 @@ export class RTCBooster {
         switch(t) {
             case "forward": {
                 let rsp: types.forward = msg
+                // make a new remote peer if it does not exist already
                 if (!(rsp.from in this.swarm)) {
                     this.swarm[rsp.from] = this.makeNewPeer(rsp.from, false)
                 }
@@ -181,12 +205,14 @@ export class RTCBooster {
 
     handleJoinResponse(rsp: types.joinResponse) {
         rsp.peerList.forEach(remotePeerID => {
+            // dont connect to ourselves
             if (rsp.peerID != remotePeerID) {
                 this.swarm[remotePeerID] = this.makeNewPeer(remotePeerID)
             }
         });
     }
 
+    // initiator specifies if we call createOffer vs createAnswer basically
     makeNewPeer(remotePeerID: string, initiator: boolean = true): Peer.Instance {
         let p = new Peer({initiator: initiator})
         p.on("signal", function(data: Peer.SignalData) {
@@ -199,6 +225,7 @@ export class RTCBooster {
             this.signalToServer(f)
         }.bind(this))
 
+        // any time a peer connects it greets with the pieces it has
         p.on("connect", function() {
             log("Peer with remote ID " + remotePeerID + " connected")
             let n: types.have = {
@@ -232,6 +259,7 @@ export class RTCBooster {
         log("Recieved peer message:", msg)
 
         switch (t) {
+            // TODO: load balancing
             case "have": {
                 let h = msg as types.have
                 let rsp: types.need = {
@@ -268,6 +296,7 @@ export class RTCBooster {
         }
     }
 
+    // TODO: get the optimum partLength
     sendPieceAsParts(remotePeer: Peer.Instance, pieceNum: number, partLen: number = 16000) {
         let pieceLen = this.file.pieceLength
         let piece = this.file.data[pieceNum]
@@ -277,7 +306,7 @@ export class RTCBooster {
     }
  
     download(addr: string, pieceNum: number) {
-        if (!this.requestedJoinSwarm) {
+        if (!this.requestedJoinSwarm && this.signalingServer.readyState == WebSocket.OPEN) {
             let j: types.join = {
                 type: "join",
                 fileID: this.fileName
@@ -285,6 +314,9 @@ export class RTCBooster {
             this.signalToServer(j)
             log("Trying to join swarm with fileID: " + j.fileID)
             this.requestedJoinSwarm = true
+        } else {
+            log("Warning: download called before connection to signaling server established")
+            // don't exit, still try to download (subject to change in future versions maybe?)
         }
 
         if (this.file.isCompleted(pieceNum)) {
@@ -307,7 +339,7 @@ export class RTCBooster {
 }
 
 
-
+// logging function, courtesy Mozilla
 function log(text: string, plainLog?: any) {
     let time = new Date()
     console.log("[" + time.toLocaleTimeString() + "] " + text)
