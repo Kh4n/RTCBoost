@@ -98,9 +98,13 @@ export class RTCBooster {
     file: pieceFile
     fileName: string
 
+    requestedJoinSwarm: boolean = false
+
     onfilecomplete: (file: Blob) => void = function(f) { log("Downloaded file", f) }
     onpiece: (pieceNum: number, piece: ArrayBuffer) => void = function(n, p) { log("Downloaded piece " + n, p) }
     onnextpiece: (piece: ArrayBuffer) => void = function(p) { log("Downloaded next piece", p) }
+
+    onsignalserverconnect: () => void = function() { log("Connected to signaling server") }
 
     constructor(signalAddr: string, fname: string, pieceLength: number, totalPieces: number = -1) {
         this.swarm = {}
@@ -131,13 +135,7 @@ export class RTCBooster {
 
         this.signalingServer = new WebSocket(signalAddr)
         this.signalingServer.onopen = function(_evt) {
-            log("Connected to signaling server")
-            let j: types.join = {
-                type: "join",
-                fileID: fname
-            }
-            this.signalToServer(j)
-            log("Trying to join swarm with fileID: " + j.fileID)
+            this.onsignalserverconnect()
         }.bind(this)
         this.signalingServer.onclose = function(_evt) {
             log("Disconnected from signaling server")
@@ -279,6 +277,16 @@ export class RTCBooster {
     }
  
     download(addr: string, pieceNum: number) {
+        if (!this.requestedJoinSwarm) {
+            let j: types.join = {
+                type: "join",
+                fileID: this.fileName
+            }
+            this.signalToServer(j)
+            log("Trying to join swarm with fileID: " + j.fileID)
+            this.requestedJoinSwarm = true
+        }
+
         if (this.file.isCompleted(pieceNum)) {
             log("Skipping piece " + pieceNum)
             return

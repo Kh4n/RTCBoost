@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -167,8 +168,12 @@ func (s *server) handleForward(msg []byte) error {
 }
 
 func main() {
+	portNum := flag.Uint("port", 6503, "the port to use")
+	flag.Parse()
+	port := fmt.Sprintf(":%d", *portNum)
+
 	s := newServer()
 	http.HandleFunc("/", s.handleConnection)
-	log.Println("Starting server")
-	log.Fatal(http.ListenAndServe("localhost:6503", nil))
+	log.Println("Starting server on port", port)
+	log.Fatal(http.ListenAndServe(port, nil))
 }

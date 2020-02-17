@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -63,8 +64,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Println("Generated test file, launching server at port 8080")
+	portNum := flag.Uint("port", 8080, "the port to use")
+	flag.Parse()
+	port := fmt.Sprintf(":%d", *portNum)
+
+	log.Println("Generated test file, launching server at port", port)
 	http.HandleFunc("/bigfile", handleBigfile)
 	http.Handle("/", http.FileServer(http.Dir(".")))
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(http.ListenAndServe(port, nil))
 }
