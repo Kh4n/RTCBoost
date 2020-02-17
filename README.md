@@ -8,7 +8,10 @@ go build
 browserify client.js -o client_dist.js
 ```
 
-You'll need Typescript, Go >= 1.12, and Browserify to run these, of course.
+You'll need Typescript, Go >= 1.12, and Browserify to run these, of course. To install `simple-peer` use:
+```
+npm install -D @types/simple-peer
+```
 
 Then start up the example server and the boost server, and nagivate to `http://localhost:8080` in two separate tabs. In the first, click Download and wait ~10 secs (progress updates automatically). After it is done, go to the second tab and click Download. With any luck, it should download the entire thing immediately. You can also try downloading the first tab for ~5 secs and then switching: it will seamlessly download the first half, and then proceed to download the rest. View the console for details (I print a ton of stuff, be warned).
 
