@@ -1,10 +1,84 @@
 import * as types from "./dtypes_json"
 import Peer from "simple-peer"
 
-// TODO: figure out how to send array buffers over reliably
 class pieceFile {
     data: Record<number, ArrayBuffer> = {}
-    onserverdownloadedfile: (pieceNum: number) => void = function(_){}
+    attempting: Set<number> = new Set<number>()
+    nextPiece: number = 0
+    piecesDownloaded: number = 0
+    pieceLength: number
+    totalPieces: number
+
+    onfilecomplete: (file: Blob) => void = function(_) {}
+    onpiece: (pieceNum: number, piece: ArrayBuffer) => void = function(_1, _2) {}
+    onnextpiece: (piece: ArrayBuffer) => void = function(_) {}
+
+    constructor(pieceLength: number, totalPieces: number) {
+        this.pieceLength = pieceLength
+        this.totalPieces = totalPieces
+    }
+
+    addPiecePart(pp: types.piecePart) {
+        if (this.isCompleted(pp.pieceNum)) {
+            return
+        }
+        if (!(pp.pieceNum in this.data)) {
+            this.attempt(pp.pieceNum)
+            this.data[pp.pieceNum] = new ArrayBuffer(this.pieceLength)
+        }
+        let offset = pp.partNum * pp.data.byteLength
+        if (offset > this.pieceLength) {
+            log("Critical: peer sent part outside of piece boundary")
+            return
+        }
+        let byteView = new Uint8Array(this.data[pp.pieceNum])
+        byteView.set(pp.data, offset)
+
+        if (pp.type == "piecePartLast") {
+            this.notifyPiece(pp.pieceNum, this.data[pp.pieceNum])
+        }
+    }
+
+    addPiece(pieceNum: number, piece: ArrayBuffer) {
+        this.data[pieceNum] = piece
+        this.notifyPiece(pieceNum, piece)
+    }
+
+    notifyPiece(pieceNum: number, piece: ArrayBuffer) {
+        this.onpiece(pieceNum, piece)
+        ++this.piecesDownloaded
+        this.attempting.delete(pieceNum)
+
+        if (pieceNum == this.nextPiece) {
+            this.onnextpiece(piece)
+            while (this.nextPiece in this.data) {
+                ++this.nextPiece
+            }
+        }
+        if (this.piecesDownloaded == this.totalPieces) {
+            // TODO:
+            // this.onfilecomplete(TODO)
+            log("File download complete")
+        }
+    }
+
+    isCompleted(pieceNum: number): boolean {
+        return (pieceNum in this.data) && !this.attempting.has(pieceNum)
+    }
+
+    isAttemptingOrCompleted(pieceNum: number): boolean {
+        // lets be safe
+        return this.attempting.has(pieceNum) || (pieceNum in this.data)
+    }
+
+    attempt(pieceNum: number) {
+        this.attempting.add(pieceNum)
+        setTimeout(function() {
+            if (this.attempting.has(pieceNum)) {
+                this.attempting.delete(pieceNum)
+            }
+        }.bind(this), 60 * 1000)
+    }
 
     availPieces(): Array<number> {
         let pieces = []
@@ -24,15 +98,47 @@ export class RTCBooster {
     file: pieceFile
     fileName: string
 
-    constructor(signalAddr: string, fname: string) {
+    onfilecomplete: (file: Blob) => void = function(f) { log("Downloaded file", f) }
+    onpiece: (pieceNum: number, piece: ArrayBuffer) => void = function(n, p) { log("Downloaded piece " + n, p) }
+    onnextpiece: (piece: ArrayBuffer) => void = function(p) { log("Downloaded next piece", p) }
+
+    constructor(signalAddr: string, fname: string, pieceLength: number, totalPieces: number = -1) {
         this.swarm = {}
-        this.file = new pieceFile()
+        this.file = new pieceFile(pieceLength, totalPieces)
+        this.file.onfilecomplete = function(file: Blob) {
+            this.onfilecomplete(file)
+        }.bind(this)
+
+        this.file.onpiece = function(pieceNum: number, piece: ArrayBuffer) {
+            this.onpiece(pieceNum, piece)
+            let availPieces = this.file.availPieces()
+            for (let p of Object.values(this.swarm) as Peer.Instance[]) {
+                let n: types.have = {
+                    type: "have",
+                    pieceNums: availPieces
+                }
+                p.send(types.encodePeerMsg(n))
+            }
+        }.bind(this)
+
+        this.file.onnextpiece = function(piece: ArrayBuffer) {
+            this.onnextpiece(piece)
+        }.bind(this)
+
         this.fileName = fname
+
+        this.onfilecomplete = function(_){ log("File " + fname + " has been downloaded") }
 
         this.signalingServer = new WebSocket(signalAddr)
         this.signalingServer.onopen = function(_evt) {
             log("Connected to signaling server")
-        }
+            let j: types.join = {
+                type: "join",
+                fileID: fname
+            }
+            this.signalToServer(j)
+            log("Trying to join swarm with fileID: " + j.fileID)
+        }.bind(this)
         this.signalingServer.onclose = function(_evt) {
             log("Disconnected from signaling server")
         }
@@ -40,13 +146,6 @@ export class RTCBooster {
         this.signalingServer.onerror = function(evt: Event) {
             log("Error connecting to signaling server: " + evt)
         }
-
-        let j: types.join = {
-            type: "join",
-            fileID: fname
-        }
-        this.signalToServer(j)
-        log("Trying to join swarm with fileID:", j)
     }
 
     signalToServer(msg: any) {
@@ -84,84 +183,103 @@ export class RTCBooster {
 
     handleJoinResponse(rsp: types.joinResponse) {
         rsp.peerList.forEach(remotePeerID => {
-            this.swarm[remotePeerID] = this.makeNewPeer(remotePeerID)
+            if (rsp.peerID != remotePeerID) {
+                this.swarm[remotePeerID] = this.makeNewPeer(remotePeerID)
+            }
         });
     }
 
     makeNewPeer(remotePeerID: string, initiator: boolean = true): Peer.Instance {
         let p = new Peer({initiator: initiator})
-        if (initiator) {
-            p.on("signal", function(data: Peer.SignalData) {
-                let f: types.forward = {
-                    type: "forward",
-                    from: this.peerID,
-                    to: remotePeerID,
-                    data: JSON.stringify(data)
-                }
-                this.signalToServer(f)
-            }.bind(this))
-        }
+        p.on("signal", function(data: Peer.SignalData) {
+            let f: types.forward = {
+                type: "forward",
+                from: this.peerID,
+                to: remotePeerID,
+                data: JSON.stringify(data)
+            }
+            this.signalToServer(f)
+        }.bind(this))
 
         p.on("connect", function() {
+            log("Peer with remote ID " + remotePeerID + " connected")
             let n: types.have = {
                 type: "have",
                 pieceNums: this.file.availPieces()
             }
-            p.send(JSON.stringify(n))
+            p.send(types.encodePeerMsg(n))
         }.bind(this))
 
-        p.on("data", function(chunk: ArrayBuffer) {
-
-        }.bind(this))
+        p.on("data", this.generatePeerDataHandler(p))
         
         p.on("close", function() {
+            delete this.swarm[remotePeerID]
             log("Peer with remote ID " + remotePeerID + " disconnected")
-        })
+        }.bind(this))
+
+        log("Created peer with ID " + remotePeerID, p)
 
         return p
     }
 
     generatePeerDataHandler(remotePeer: Peer.Instance): (chunk: Peer.SimplePeerData) => void {
         return function(chunk: Peer.SimplePeerData) {
-            switch (typeof chunk) {
-                case "string": {
-                    this.handleStringPeerData(remotePeer, chunk as string)
-                }
-                case "object": {
-                    let piece = types.readPiece(chunk as ArrayBuffer)
-                    this.file.data[piece.pieceNum] = piece.data
-                }
-
-                default:
-                    log("Peer sent unknown data", remotePeer)
-            }
+            this.handlePeerData(remotePeer, chunk)
         }.bind(this)
     }
 
-    handleStringPeerData(remotePeer: Peer.Instance, chunk: string) {
-        let msg = JSON.parse(chunk)
+    handlePeerData(remotePeer: Peer.Instance, chunk: Uint8Array) {
+        let msg = types.decodePeerMsg(chunk)
         let t = msg.type as types.p2pMsgTypes
+        log("Recieved peer message:", msg)
 
         switch (t) {
             case "have": {
-                TODO
+                let h = msg as types.have
+                let rsp: types.need = {
+                    type: "need",
+                    pieceNums: [],
+                }
+                for (let n of h.pieceNums) {
+                    if (!this.file.isAttemptingOrCompleted(n)) {
+                        rsp.pieceNums.push(n)
+                    }
+                }
+                if (rsp.pieceNums.length > 0) {
+                    remotePeer.send(types.encodePeerMsg(rsp))
+                }
                 break
             }
             case "need": {
                 let n = msg as types.need
                 for (let pieceNum of n.pieceNums) {
-                    remotePeer.send(types.makePiece(this.file.data[pieceNum], pieceNum))
+                    if (this.file.isCompleted(pieceNum)) {
+                        this.sendPieceAsParts(remotePeer, pieceNum)
+                    }
                 }
+                break
+            }
+            case "piecePart": case "piecePartLast": {
+                let pp = msg as types.piecePart
+                this.file.addPiecePart(pp)
                 break
             }
 
             default:
-                log("Peer sent unknown data", remotePeer)
+                log("Peer sent unknown data", chunk)
+        }
+    }
+
+    sendPieceAsParts(remotePeer: Peer.Instance, pieceNum: number, partLen: number = 16000) {
+        let pieceLen = this.file.pieceLength
+        let piece = this.file.data[pieceNum]
+        for (let offset = 0, part = 0; offset < pieceLen; offset += partLen, ++part) {
+            remotePeer.send(types.encodePiecePart(pieceNum, part, offset, partLen, piece))
         }
     }
  
     download(addr: string, pieceNum: number) {
-        if (pieceNum in this.file.data) {
+        if (this.file.isCompleted(pieceNum)) {
             log("Skipping piece " + pieceNum)
             return
         }
@@ -170,8 +288,11 @@ export class RTCBooster {
         xhr.open("get", addr)
         xhr.responseType = "arraybuffer"
         xhr.onload = function() {
-            this.file.data[pieceNum] = xhr.response
-            this.file.onserverdownloadedfile(pieceNum)
+            // bypass expensive copy if possible
+            if (!this.file.isCompleted(pieceNum)) {
+                log("Piece downloaded from server", xhr.response)
+                this.file.addPiece(pieceNum, xhr.response)
+            }
         }.bind(this)
         xhr.send()
     }

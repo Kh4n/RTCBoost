@@ -19,7 +19,7 @@ type forward struct {
 
 type join struct {
 	Type   string `json:"type"`
-	FileID string `json:"file"`
+	FileID string `json:"fileID"`
 }
 type joinResponse struct {
 	Type     string   `json:"type"`

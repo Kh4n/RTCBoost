@@ -146,6 +146,10 @@ func (s *server) handleJoin(c *websocket.Conn, uid string, msg []byte) error {
 	if err != nil {
 		return err
 	}
+	err = s.sm.joinSwarm(uid, n.FileID)
+	if err != nil {
+		return err
+	}
 	peers, err := s.sm.getSwarm(n.FileID, s.peers)
 	if err != nil {
 		return err

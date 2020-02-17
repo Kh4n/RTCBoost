@@ -72,7 +72,7 @@ func (s *swarmManager) leaveSwarm(peerID string, fileID string) error {
 func (s *swarmManager) getSwarm(fileID string, peersOnline map[string]*websocketRWLock) ([]string, error) {
 	tmp, ok := s.fileToPeers.Load(fileID)
 	if !ok {
-		e := fmt.Sprint("No swam with fileID", fileID)
+		e := fmt.Sprint("No swarm with fileID", fileID)
 		return nil, errors.New(e)
 	}
 	swarm, ok := tmp.(*swarm)
