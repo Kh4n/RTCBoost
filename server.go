@@ -1,3 +1,6 @@
+// The boost server. A websocket handler basically. Designed to be a bare minimum as possible so that it
+// can handle many connections simultaneously without needing to store large ammounts of info
+
 package main
 
 import (
@@ -18,35 +21,18 @@ type websocketRWLock struct {
 	mutex sync.Mutex
 }
 
-type files struct {
-	inner sync.Map
-}
-
-func (f *files) add(fname string, pieceID string) error {
-	tmp, _ := f.inner.LoadOrStore(fname, make(map[string]struct{}))
-	pieces, ok := tmp.(map[string]struct{})
-	if !ok {
-		return errors.New("unknown datatype in files struct")
-	}
-	pieces[pieceID] = struct{}{}
-	return nil
-}
-
-func (f *files) get(fname string) map[string]struct{} {
-	tmp, _ := f.inner.LoadOrStore(fname, make(map[string]struct{}))
-	pieces, _ := tmp.(map[string]struct{})
-	return pieces
-}
-
+// the actual server struct
 type server struct {
-	upgrader  *websocket.Upgrader
+	upgrader *websocket.Upgrader
+
+	// keep track of peer connections so we can signal. no need for sync.map, this does not fit use case
 	peers     map[string]*websocketRWLock
 	peersLock sync.Mutex
 
-	sm   swarmManager
-	info files
+	sm swarmManager
 }
 
+// make a new server
 func newServer() *server {
 	upgrader := websocket.Upgrader{}
 	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
@@ -56,6 +42,7 @@ func newServer() *server {
 	}
 }
 
+// write JSON to a peer, locking properly and everything
 func (s *server) writeJSONToPeer(dat interface{}, peerID string) error {
 	if _, ok := s.peers[peerID]; !ok {
 		return errors.New("Peer attempting to connect to peerID that does not exist")
@@ -69,6 +56,7 @@ func (s *server) writeJSONToPeer(dat interface{}, peerID string) error {
 	return nil
 }
 
+// handles a connection from a peer
 func (s *server) handleConnection(w http.ResponseWriter, r *http.Request) {
 	c, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -76,6 +64,8 @@ func (s *server) handleConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Println("Recieved new connection from:", c.RemoteAddr().String())
+
+	// each peer gets a unique ID
 	uid := s.registerPeer(c)
 
 	defer c.Close()
@@ -89,6 +79,8 @@ func (s *server) handleConnection(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		switch mt {
+
+		// we only deal with text messages
 		case websocket.TextMessage:
 			err = s.handleText(c, uid, msg)
 			if err != nil {
@@ -100,6 +92,7 @@ func (s *server) handleConnection(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// uses a closure to automatically handle cleanup
 func (s *server) registerPeer(c *websocket.Conn) string {
 	uid := ksuid.New().String()
 	s.peersLock.Lock()
@@ -120,7 +113,9 @@ func (s *server) handleClose(code int, text string) error {
 	return nil
 }
 
+// handle a text connection. returns any errors recieved without terminating connection
 func (s *server) handleText(c *websocket.Conn, uid string, msg []byte) error {
+	// I have found this to be the best way to deal with JSON in go (there are others)
 	var a all
 	err := json.Unmarshal(msg, &a)
 	if err != nil {
@@ -147,16 +142,34 @@ func (s *server) handleJoin(c *websocket.Conn, uid string, msg []byte) error {
 	if err != nil {
 		return err
 	}
+
+	// try to join an existing swarm or make a new one
 	err = s.sm.joinSwarm(uid, n.FileID)
 	if err != nil {
 		return err
 	}
+
+	// will return the peers own peerID along with list of other peers in swarm (including them)
+	// it is up to the peer to not connect to itself
 	peers, err := s.sm.getSwarm(n.FileID, s.peers)
 	if err != nil {
 		return err
 	}
 	nr := makeJoinResponse(uid, peers)
-	return c.WriteJSON(nr)
+
+	tmp, ok := s.peers[uid]
+	if !ok {
+		e := fmt.Sprint("Peer has disconnected, not sending join info. PeerID:", uid)
+		return errors.New(e)
+
+	}
+	// only need to lock the actual connection, not entire map.
+	// if map changes it is not an issue becuase we are only holding pointer (read is safe)
+	lock := &tmp.mutex
+	lock.Lock()
+	c.WriteJSON(nr)
+	lock.Unlock()
+	return nil
 }
 
 func (s *server) handleForward(msg []byte) error {
