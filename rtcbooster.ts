@@ -306,11 +306,7 @@ export class RTCBooster {
     }
  
     download(addr: string, pieceNum: number) {
-<<<<<<< HEAD
         if (!this.requestedJoinSwarm && this.signalingServer.readyState === WebSocket.OPEN) {
-=======
-        if (!this.requestedJoinSwarm && this.signalingServer.readyState == WebSocket.OPEN) {
->>>>>>> dc8ce09601ecd0e8db73a77f01833b065acbad3e
             let j: types.join = {
                 type: "join",
                 fileID: this.fileName
@@ -318,11 +314,7 @@ export class RTCBooster {
             this.signalToServer(j)
             log("Trying to join swarm with fileID: " + j.fileID)
             this.requestedJoinSwarm = true
-<<<<<<< HEAD
         } else if (this.signalingServer.readyState !== WebSocket.OPEN) {
-=======
-        } else {
->>>>>>> dc8ce09601ecd0e8db73a77f01833b065acbad3e
             log("Warning: download called before connection to signaling server established")
             // don't exit, still try to download (subject to change in future versions maybe?)
         }
