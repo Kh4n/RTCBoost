@@ -64,13 +64,21 @@ class pieceFile {
     }
 
     notifyPiece(pieceNum: number, piece: ArrayBuffer) {
-        this.onpiece(pieceNum, piece)
+        try {
+            this.onpiece(pieceNum, piece)
+        } catch(e) {
+            log("Error occured in onpiece handler:", e as Error)
+        }
         ++this.piecesDownloaded
         this.attempting.delete(pieceNum)
 
         if (pieceNum == this.nextPiece) {
             while (this.isCompleted(this.nextPiece)) {
-                this.onnextpiece(this.data[this.nextPiece])
+                try {
+                    this.onnextpiece(this.data[this.nextPiece])
+                } catch (e) {
+                    log("Error occured in onnextpiece handler:", e as Error)
+                }
                 ++this.nextPiece
             }
         }
@@ -138,13 +146,16 @@ export class RTCBooster {
         // alert swarm if we have a new piece
         this.file.onpiece = function(pieceNum: number, piece: ArrayBuffer) {
             this.onpiece(pieceNum, piece)
-            let availPieces = this.file.availPieces()
             for (let p of Object.values(this.swarm) as Peer.Instance[]) {
                 let n: types.have = {
                     type: "have",
-                    pieceNums: availPieces
+                    pieceNums: [pieceNum]
                 }
-                p.send(types.encodePeerMsg(n))
+                try {
+                    p.send(types.encodePeerMsg(n))
+                } catch (_) {
+                    log("peer not stable, they will be notified when connection is stable")
+                }
             }
         }.bind(this)
 
