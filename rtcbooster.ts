@@ -1,13 +1,82 @@
 import * as types from "./dtypes_json"
 import Peer from "simple-peer"
 
+class boostPeer extends Peer {
+    // safe default size
+    partLen: number = 16000
+
+    constructor(opts: Peer.Options) {
+        super(opts)
+    }
+
+    // optimum part length is basically always 16kb
+    sendPieceAsParts(file: pieceFile, pieceNum: number) {
+        let pieceLen = file.pieceLength
+        let piece = file.data[pieceNum].buf
+        for (let offset = 0, part = 0; offset < pieceLen; offset += this.partLen, ++part) {
+            this.send(types.encodePiecePart(pieceNum, part, offset, this.partLen, piece))
+        }
+    }
+
+    // just in case sending bigger messages is better in the future
+    signal(data: string) {
+        super.signal(data)
+        let sdpMaybe = JSON.parse(data) as RTCSessionDescription
+        if (sdpMaybe.sdp) {
+            const match = sdpMaybe.sdp.match(/a=max-message-size:\s*(\d+)/);
+            if (match !== null && match.length >= 2) {
+                log("Optimum part size (not using it): " + parseInt(match[1]) )
+            }
+        }
+    }
+
+    sendJSON(data: types.have | types.need) {
+        this.send(types.encodePeerMsg(data))
+    }
+}
+
+type pieceStatus = "pending" | "started" | "completed"
+
+// represents a piece of a file
+class filePiece {
+    buf: ArrayBuffer
+    // need to distinguish between what is being attempted and what is done, as a piece in data is
+    // fully allocated when the first part arrives, which means it is in data before it is available
+    status: pieceStatus = "pending"
+
+    constructor(from: ArrayBuffer | number, status: pieceStatus = "pending") {
+        if (typeof from == "number") {
+            this.buf = new ArrayBuffer(from as number)
+        } else {
+            this.buf = from as ArrayBuffer
+        }
+        this.status = status
+    }
+
+    copyPart(from: Uint8Array, offset: number, isLast: boolean) {
+        if (offset > this.buf.byteLength) {
+            log("Critical: peer sent part outside of piece boundary")
+            this.status = "pending"
+            throw "peer sent part outside of piece boundary"
+        }
+        let byteView = new Uint8Array(this.buf)
+        byteView.set(from, offset)
+
+        this.status = "started"
+        if (isLast) {
+            this.status = "completed"
+        }
+    }
+
+    reset() {
+        this.status = "pending"
+    }
+}
+
 // data structure to keep track of a file made up of separate pieces
 class pieceFile {
     // no need for Map, as we dont need ordering on iteration
-    data: Record<number, ArrayBuffer> = {}
-    // need to distinguish between what is being attempted and what is being done, as a piece in data is
-    // fully allocated when the first part arrives, which means it is in data before it is available
-    attempting: Set<number> = new Set<number>()
+    data: Record<number, filePiece> = {}
 
     // keep track of ordering
     nextPiece: number = 0
@@ -15,7 +84,7 @@ class pieceFile {
     pieceLength: number
     totalPieces: number
 
-    // fires when file is completely downloaded. also assembles file into a blob
+    // fires when file is completely downloaded. also assembles file into a blob (unimplemented)
     onfilecomplete: (file: Blob) => void = function(_) {}
 
     // when any piece is downloaded
@@ -23,7 +92,7 @@ class pieceFile {
 
     // when the next piece in order is downloaded
     // can fire repeatedly in certain circumstances: 
-    // eg piece 3, 2, 1 downloaded, it wont fire, and the once 0 is downloaded it fires 4 times for 0, 1, 2, 3
+    // eg piece 3, 2, 1 downloaded, it wont fire, and then once 0 is downloaded it fires 4 times for 0, 1, 2, 3
     onnextpiece: (piece: ArrayBuffer) => void = function(_) {}
 
     // if totalPieces is negative, we dont know how many pieces there are, and onfilecomplete will never fire
@@ -40,42 +109,36 @@ class pieceFile {
         }
         // allocate entire piece
         if (!(pp.pieceNum in this.data)) {
-            this.attempt(pp.pieceNum)
-            this.data[pp.pieceNum] = new ArrayBuffer(this.pieceLength)
+            this.data[pp.pieceNum] = new filePiece(this.pieceLength)
         }
         let offset = pp.partNum * pp.data.byteLength
-        if (offset > this.pieceLength) {
-            log("Critical: peer sent part outside of piece boundary")
-            return
-        }
-        let byteView = new Uint8Array(this.data[pp.pieceNum])
-        byteView.set(pp.data, offset)
+        this.data[pp.pieceNum].copyPart(pp.data, offset, pp.type == "piecePartLast")
 
         // transmission is done in order, so when we recieve the last part, we know that the download is finished
         // if that becomes an issue, we can always just keep track of each download separately 
         if (pp.type == "piecePartLast") {
-            this.notifyPiece(pp.pieceNum, this.data[pp.pieceNum])
+            this.notifyPiece(pp.pieceNum)
         }
     }
 
     addPiece(pieceNum: number, piece: ArrayBuffer) {
-        this.data[pieceNum] = piece
-        this.notifyPiece(pieceNum, piece)
+        this.data[pieceNum] = new filePiece(piece, "completed")
+        this.notifyPiece(pieceNum)
     }
 
-    notifyPiece(pieceNum: number, piece: ArrayBuffer) {
+    notifyPiece(pieceNum: number) {
+        let piece = this.data[pieceNum].buf
         try {
             this.onpiece(pieceNum, piece)
         } catch(e) {
             log("Error occured in onpiece handler:", e as Error)
         }
         ++this.piecesDownloaded
-        this.attempting.delete(pieceNum)
 
         if (pieceNum == this.nextPiece) {
             while (this.isCompleted(this.nextPiece)) {
                 try {
-                    this.onnextpiece(this.data[this.nextPiece])
+                    this.onnextpiece(this.data[this.nextPiece].buf)
                 } catch (e) {
                     log("Error occured in onnextpiece handler:", e as Error)
                 }
@@ -90,21 +153,24 @@ class pieceFile {
     }
 
     isCompleted(pieceNum: number): boolean {
-        return (pieceNum in this.data) && !this.attempting.has(pieceNum)
+        let d = this.data
+        return pieceNum in d && d[pieceNum].status == "completed"
     }
 
     isAttemptingOrCompleted(pieceNum: number): boolean {
-        // lets be safe
-        return this.attempting.has(pieceNum) || (pieceNum in this.data)
+        let d = this.data
+        return pieceNum in d && d[pieceNum].status != "pending"
     }
 
     // only 60 seconds to download any piece, after that maybe try from another peer
     // probably need to make a better way to do this
     attempt(pieceNum: number) {
-        this.attempting.add(pieceNum)
+        if (pieceNum in this.data) {
+            this.data[pieceNum].status = "started"
+        }
         setTimeout(function() {
             if (!this.isCompleted(pieceNum)) {
-                this.attempting.delete(pieceNum)
+                this.data[pieceNum].reset()
             }
         }.bind(this), 60 * 1000)
     }
@@ -112,7 +178,9 @@ class pieceFile {
     availPieces(): Array<number> {
         let pieces = []
         for (let num in this.data) {
-            pieces.push(num)
+            if (this.isCompleted(parseInt(num))) {
+                pieces.push(num)
+            }
         }
         return pieces
     }
@@ -122,7 +190,7 @@ export class RTCBooster {
     signalingServer: WebSocket
 
     peerID: string
-    swarm: Record<string, Peer.Instance>
+    swarm: Record<string, boostPeer>
 
     file: pieceFile
     fileName: string
@@ -146,13 +214,13 @@ export class RTCBooster {
         // alert swarm if we have a new piece
         this.file.onpiece = function(pieceNum: number, piece: ArrayBuffer) {
             this.onpiece(pieceNum, piece)
-            for (let p of Object.values(this.swarm) as Peer.Instance[]) {
+            for (let p of Object.values(this.swarm) as boostPeer[]) {
                 let n: types.have = {
                     type: "have",
                     pieceNums: [pieceNum]
                 }
                 try {
-                    p.send(types.encodePeerMsg(n))
+                    p.sendJSON(n)
                 } catch (_) {
                     log("peer not stable, they will be notified when connection is stable")
                 }
@@ -224,8 +292,8 @@ export class RTCBooster {
     }
 
     // initiator specifies if we call createOffer vs createAnswer basically
-    makeNewPeer(remotePeerID: string, initiator: boolean = true): Peer.Instance {
-        let p = new Peer({initiator: initiator})
+    makeNewPeer(remotePeerID: string, initiator: boolean = true): boostPeer {
+        let p = new boostPeer({initiator: initiator})
         p.on("signal", function(data: Peer.SignalData) {
             let f: types.forward = {
                 type: "forward",
@@ -243,7 +311,7 @@ export class RTCBooster {
                 type: "have",
                 pieceNums: this.file.availPieces()
             }
-            p.send(types.encodePeerMsg(n))
+            p.sendJSON(n)
         }.bind(this))
 
         p.on("data", this.generatePeerDataHandler(p))
@@ -258,13 +326,13 @@ export class RTCBooster {
         return p
     }
 
-    generatePeerDataHandler(remotePeer: Peer.Instance): (chunk: Peer.SimplePeerData) => void {
+    generatePeerDataHandler(remotePeer: boostPeer): (chunk: Peer.SimplePeerData) => void {
         return function(chunk: Peer.SimplePeerData) {
             this.handlePeerData(remotePeer, chunk)
         }.bind(this)
     }
 
-    handlePeerData(remotePeer: Peer.Instance, chunk: Uint8Array) {
+    handlePeerData(remotePeer: boostPeer, chunk: Uint8Array) {
         let msg = types.decodePeerMsg(chunk)
         let t = msg.type as types.p2pMsgTypes
         log("Recieved peer message:", msg)
@@ -283,7 +351,7 @@ export class RTCBooster {
                     }
                 }
                 if (rsp.pieceNums.length > 0) {
-                    remotePeer.send(types.encodePeerMsg(rsp))
+                    remotePeer.sendJSON(rsp)
                 }
                 break
             }
@@ -291,7 +359,7 @@ export class RTCBooster {
                 let n = msg as types.need
                 for (let pieceNum of n.pieceNums) {
                     if (this.file.isCompleted(pieceNum)) {
-                        this.sendPieceAsParts(remotePeer, pieceNum)
+                        remotePeer.sendPieceAsParts(this.file, pieceNum)
                     }
                 }
                 break
@@ -304,15 +372,6 @@ export class RTCBooster {
 
             default:
                 log("Peer sent unknown data", chunk)
-        }
-    }
-
-    // TODO: get the optimum partLength
-    sendPieceAsParts(remotePeer: Peer.Instance, pieceNum: number, partLen: number = 16000) {
-        let pieceLen = this.file.pieceLength
-        let piece = this.file.data[pieceNum]
-        for (let offset = 0, part = 0; offset < pieceLen; offset += partLen, ++part) {
-            remotePeer.send(types.encodePiecePart(pieceNum, part, offset, partLen, piece))
         }
     }
  

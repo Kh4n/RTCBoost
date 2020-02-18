@@ -35,8 +35,8 @@ Next steps:
     - Now using [simple-peer](https://github.com/feross/simple-peer)
 - ~~Either use bittorrent protocol or come up with own to allow peers to communicate (can't be JSON because binary limitation)~~
     - Used my own super simple protocol. Simply a type byte, piece number, and part number. Only weird thing is that I am storing this info at the end of the array, in the anticipation that [ArrayBuffer.transfer](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transfer) gets widely adopted
-- Send large amounts of data efficiently
-    - The best way is to read the SDP and find optimum length (adapter.js does this). Right now it is fixed at 16Kb.
+- ~~Send large amounts of data efficiently. The best way is to read the SDP and find optimum length (adapter.js does this). Right now it is fixed at 16Kb.~~
+    - Pointless to read SDP, see http://viblast.com/blog/2015/2/5/webrtc-data-channel-message-size/. Even though article is old, I have tested reading the SDP and the results were subpar (didn't send at all at first, reducing the size introduced errors like pieces getting clipped halfway)
 - Swarm load balancing. Right now each peer aggressively grabs as much as possible from just one peer (first it connects to)
 - Find a clever way to store the file. I have a few ideas how to solve this
 - Make server extensible so the backend storage can be swapped for something like Redis in practice
