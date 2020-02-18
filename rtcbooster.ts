@@ -103,7 +103,7 @@ class pieceFile {
     attempt(pieceNum: number) {
         this.attempting.add(pieceNum)
         setTimeout(function() {
-            if (this.attempting.has(pieceNum)) {
+            if (!this.isCompleted(pieceNum)) {
                 this.attempting.delete(pieceNum)
             }
         }.bind(this), 60 * 1000)
@@ -346,6 +346,7 @@ export class RTCBooster {
             }
         }.bind(this)
         xhr.send()
+        this.file.attempt(pieceNum)
     }
 }
 
