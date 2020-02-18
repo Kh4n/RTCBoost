@@ -14,10 +14,14 @@ window.addEventListener("load", function(_evt) {
 function connect() {
     let signalAddr = "ws://" + (document.getElementById("signalAddr") as HTMLInputElement).value
     booster = new RTCBooster(signalAddr, "bigfile.txt", 1000000, 10)
-    booster.onpiece = function(pieceNum: number, _) {
+    booster.onpiece = function(pieceNum: number, _, fromServer: boolean) {
         console.log("Downloaded piece " + pieceNum);
         let d = document.getElementById("" + pieceNum) as HTMLDivElement
-        d.style.backgroundColor = "green"
+        if (fromServer) {
+            d.style.backgroundColor = "red"
+        } else {
+            d.style.backgroundColor = "green"
+        }
     }
     booster.onsignalserverconnect = function() {
         // it is clients job to not call RTCBooster.download until the booster is ready

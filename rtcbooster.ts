@@ -88,12 +88,12 @@ class pieceFile {
     onfilecomplete: (file: Blob) => void = function(_) {}
 
     // when any piece is downloaded
-    onpiece: (pieceNum: number, piece: ArrayBuffer) => void = function(_1, _2) {}
+    onpiece: (pieceNum: number, piece: ArrayBuffer, fromServer: boolean) => void = function(_1, _2, _3) {}
 
     // when the next piece in order is downloaded
     // can fire repeatedly in certain circumstances: 
     // eg piece 3, 2, 1 downloaded, it wont fire, and then once 0 is downloaded it fires 4 times for 0, 1, 2, 3
-    onnextpiece: (piece: ArrayBuffer) => void = function(_) {}
+    onnextpiece: (piece: ArrayBuffer, fromServer: boolean) => void = function(_) {}
 
     // if totalPieces is negative, we dont know how many pieces there are, and onfilecomplete will never fire
     constructor(pieceLength: number, totalPieces: number) {
@@ -114,7 +114,7 @@ class pieceFile {
         let offset = pp.partNum * pp.data.byteLength
         this.data[pp.pieceNum].copyPart(pp.data, offset, pp.type == "piecePartLast")
 
-        // transmission is done in order, so when we recieve the last part, we know that the download is finished
+        // transmission is done in order, so when we receive the last part, we know that the download is finished
         // if that becomes an issue, we can always just keep track of each download separately 
         if (pp.type == "piecePartLast") {
             this.notifyPiece(pp.pieceNum)
@@ -123,13 +123,13 @@ class pieceFile {
 
     addPiece(pieceNum: number, piece: ArrayBuffer) {
         this.data[pieceNum] = new filePiece(piece, "completed")
-        this.notifyPiece(pieceNum)
+        this.notifyPiece(pieceNum, true)
     }
 
-    notifyPiece(pieceNum: number) {
+    notifyPiece(pieceNum: number, fromServer: boolean = false) {
         let piece = this.data[pieceNum].buf
         try {
-            this.onpiece(pieceNum, piece)
+            this.onpiece(pieceNum, piece, fromServer)
         } catch(e) {
             log("Error occured in onpiece handler:", e as Error)
         }
@@ -138,7 +138,7 @@ class pieceFile {
         if (pieceNum == this.nextPiece) {
             while (this.isCompleted(this.nextPiece)) {
                 try {
-                    this.onnextpiece(this.data[this.nextPiece].buf)
+                    this.onnextpiece(this.data[this.nextPiece].buf, fromServer)
                 } catch (e) {
                     log("Error occured in onnextpiece handler:", e as Error)
                 }
@@ -198,8 +198,8 @@ export class RTCBooster {
     requestedJoinSwarm: boolean = false
 
     onfilecomplete: (file: Blob) => void = function(f) { log("Downloaded file", f) }
-    onpiece: (pieceNum: number, piece: ArrayBuffer) => void = function(n, p) { log("Downloaded piece " + n, p) }
-    onnextpiece: (piece: ArrayBuffer) => void = function(p) { log("Downloaded next piece", p) }
+    onpiece: (pieceNum: number, piece: ArrayBuffer, fromServer: boolean) => void = function(n, p, _f) { log("Downloaded piece " + n, p) }
+    onnextpiece: (piece: ArrayBuffer, fromServer: boolean) => void = function(p, _f) { log("Downloaded next piece", p) }
 
     // client should hook their download call to this, or they can call download immediately and it will connect ASAP
     onsignalserverconnect: () => void = function() { log("Connected to signaling server") }
@@ -212,8 +212,8 @@ export class RTCBooster {
         }.bind(this)
 
         // alert swarm if we have a new piece
-        this.file.onpiece = function(pieceNum: number, piece: ArrayBuffer) {
-            this.onpiece(pieceNum, piece)
+        this.file.onpiece = function(pieceNum: number, piece: ArrayBuffer, fromServer: boolean) {
+            this.onpiece(pieceNum, piece, fromServer)
             for (let p of Object.values(this.swarm) as boostPeer[]) {
                 let n: types.have = {
                     type: "have",
@@ -227,8 +227,8 @@ export class RTCBooster {
             }
         }.bind(this)
 
-        this.file.onnextpiece = function(piece: ArrayBuffer) {
-            this.onnextpiece(piece)
+        this.file.onnextpiece = function(piece: ArrayBuffer, fromServer: boolean) {
+            this.onnextpiece(piece, fromServer)
         }.bind(this)
 
         this.fileName = fname
@@ -335,7 +335,7 @@ export class RTCBooster {
     handlePeerData(remotePeer: boostPeer, chunk: Uint8Array) {
         let msg = types.decodePeerMsg(chunk)
         let t = msg.type as types.p2pMsgTypes
-        log("Recieved peer message:", msg)
+        log("Received peer message:", msg)
 
         switch (t) {
             // TODO: load balancing

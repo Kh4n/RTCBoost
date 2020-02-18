@@ -63,7 +63,7 @@ func (s *server) handleConnection(w http.ResponseWriter, r *http.Request) {
 		log.Println("Unable to upgrade:", err)
 		return
 	}
-	log.Println("Recieved new connection from:", c.RemoteAddr().String())
+	log.Println("Received new connection from:", c.RemoteAddr().String())
 
 	// each peer gets a unique ID
 	uid := s.registerPeer(c)
@@ -87,7 +87,7 @@ func (s *server) handleConnection(w http.ResponseWriter, r *http.Request) {
 				log.Println("Error occurred while reading text message:", err)
 			}
 		case websocket.BinaryMessage:
-			log.Println("Binary message recieved:", msg)
+			log.Println("Binary message received:", msg)
 		}
 	}
 }
@@ -113,7 +113,7 @@ func (s *server) handleClose(code int, text string) error {
 	return nil
 }
 
-// handle a text connection. returns any errors recieved without terminating connection
+// handle a text connection. returns any errors received without terminating connection
 func (s *server) handleText(c *websocket.Conn, uid string, msg []byte) error {
 	// I have found this to be the best way to deal with JSON in go (there are others)
 	var a all
@@ -130,7 +130,7 @@ func (s *server) handleText(c *websocket.Conn, uid string, msg []byte) error {
 		err = s.handleJoin(c, uid, msg)
 
 	default:
-		e := fmt.Sprint("unknown data recieved: ", a)
+		e := fmt.Sprint("unknown data received: ", a)
 		err = errors.New(e)
 	}
 
