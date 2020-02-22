@@ -14,6 +14,15 @@ window.addEventListener("load", function(_evt) {
 function connect() {
     let signalAddr = "ws://" + (document.getElementById("signalAddr") as HTMLInputElement).value
     booster = new RTCBooster(signalAddr, "bigfile.txt", 1000000, 10)
+    booster.onfilecomplete = function(file: File) {
+        console.log(file)
+        let r = new FileReader()
+        r.onload = function(ev: ProgressEvent<FileReader>) {
+            console.log(ev.target.result)
+        }
+        console.log("File contents:")
+        r.readAsText(file)
+    }
     booster.onpiece = function(pieceNum: number, _, fromServer: boolean) {
         console.log("Downloaded piece " + pieceNum);
         let d = document.getElementById("" + pieceNum) as HTMLDivElement

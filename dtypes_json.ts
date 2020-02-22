@@ -50,7 +50,7 @@ type peerMsgByte = 0x0 | 0x1 | 0x2
 
 // we cannot tell what is being sent over, so we just assume everything is Uint8Array
 // we use a type byte to distinguish between JSON and actual Uint8 data
-export function encodePeerMsg(msg: have | need): ArrayBuffer {
+export function encodePeerMsg(msg: have | need): Uint8Array {
     let s = JSON.stringify(msg)
     let ret = new Uint8Array(s.length + 1)
     // safe because there is no way for these types to conatin non ASCII chars
@@ -62,8 +62,8 @@ export function encodePeerMsg(msg: have | need): ArrayBuffer {
 
 // structure: data:pieceNum:partNum:0x1||0x0
 // encoding at the end because it will be faster when array.transfer is available (realloc for JS basically)
-export function encodePiecePart(num: number, part: number, offset: number, length: number, piece: ArrayBuffer): ArrayBuffer {
-    let data = (new Uint8Array(piece)).subarray(offset, offset + length)
+export function encodePiecePart(num: number, part: number, offset: number, length: number, piece: Uint8Array): Uint8Array {
+    let data = piece.subarray(offset, offset + length)
     let tosend = new Uint8Array(data.byteLength + 5)
 
     tosend.set(data)
@@ -76,19 +76,18 @@ export function encodePiecePart(num: number, part: number, offset: number, lengt
     tosend[tosend.length - 2] = part & 0xFF
 
     tosend[tosend.length - 1] = offset + length >= piece.byteLength ? peerUint8LastPart : peerUint8Part
-    return tosend.buffer
+    return tosend
 }
 
 // read a part sent over from a remote peer, and also decide if it was the last part of the transmission
-function readPiecePart(chunk: ArrayBuffer, isLast: boolean): piecePart {
-    let v = new Uint8Array(chunk)
-    let pieceNum = v[v.length - 4] + (v[v.length - 5] << 8)
-    let partNum = v[v.length - 2] + (v[v.length - 3] << 8)
+function readPiecePart(chunk: Uint8Array, isLast: boolean): piecePart {
+    let pieceNum = chunk[chunk.length - 4] + (chunk[chunk.length - 5] << 8)
+    let partNum = chunk[chunk.length - 2] + (chunk[chunk.length - 3] << 8)
     return {
         type: isLast ? "piecePartLast" : "piecePart",
         pieceNum: pieceNum,
         partNum: partNum,
-        data: v.subarray(0, v.length - 5)
+        data: chunk.subarray(0, chunk.length - 5)
     }
 }
 

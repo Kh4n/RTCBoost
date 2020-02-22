@@ -39,16 +39,16 @@ type pieceStatus = "pending" | "started" | "completed"
 
 // represents a piece of a file
 class filePiece {
-    buf: ArrayBuffer
+    buf: Uint8Array
     // need to distinguish between what is being attempted and what is done, as a piece in data is
     // fully allocated when the first part arrives, which means it is in data before it is available
     status: pieceStatus = "pending"
 
-    constructor(from: ArrayBuffer | number, status: pieceStatus = "pending") {
+    constructor(from: Uint8Array | number, status: pieceStatus = "pending") {
         if (typeof from == "number") {
-            this.buf = new ArrayBuffer(from as number)
+            this.buf = new Uint8Array(from as number)
         } else {
-            this.buf = from as ArrayBuffer
+            this.buf = from as Uint8Array
         }
         this.status = status
     }
@@ -59,13 +59,16 @@ class filePiece {
             this.status = "pending"
             throw "peer sent part outside of piece boundary"
         }
-        let byteView = new Uint8Array(this.buf)
-        byteView.set(from, offset)
+        this.buf.set(from, offset)
 
         this.status = "started"
         if (isLast) {
             this.status = "completed"
         }
+    }
+
+    swap(newBuf: Uint8Array) {
+        this.buf = newBuf
     }
 
     reset() {
@@ -78,6 +81,11 @@ class pieceFile {
     // no need for Map, as we dont need ordering on iteration
     data: Record<number, filePiece> = {}
 
+    // need to store buffer because accessing it from file it just not practical
+    fileBuffer: Uint8Array = null
+    complete: boolean = false
+    fileName: string
+
     // keep track of ordering
     nextPiece: number = 0
     piecesDownloaded: number = 0
@@ -85,24 +93,29 @@ class pieceFile {
     totalPieces: number
 
     // fires when file is completely downloaded. also assembles file into a blob (unimplemented)
-    onfilecomplete: (file: Blob) => void = function(_) {}
+    onfilecomplete: (file: File) => void = function(_) {}
 
     // when any piece is downloaded
-    onpiece: (pieceNum: number, piece: ArrayBuffer, fromServer: boolean) => void = function(_1, _2, _3) {}
+    onpiece: (pieceNum: number, piece: Uint8Array, fromServer: boolean) => void = function(_1, _2, _3) {}
 
     // when the next piece in order is downloaded
     // can fire repeatedly in certain circumstances: 
     // eg piece 3, 2, 1 downloaded, it wont fire, and then once 0 is downloaded it fires 4 times for 0, 1, 2, 3
-    onnextpiece: (piece: ArrayBuffer, fromServer: boolean) => void = function(_) {}
+    onnextpiece: (piece: Uint8Array, fromServer: boolean) => void = function(_) {}
 
     // if totalPieces is negative, we dont know how many pieces there are, and onfilecomplete will never fire
-    constructor(pieceLength: number, totalPieces: number) {
+    constructor(fname: string, pieceLength: number, totalPieces: number) {
+        this.fileName = fname + Date.now()
         this.pieceLength = pieceLength
         this.totalPieces = totalPieces
     }
 
     // add part of a piece
     addPiecePart(pp: types.piecePart) {
+        if (this.complete) {
+            log("Warning: addPiecePart called when file is already downloaded")
+            return
+        }
         // server beat us to it
         if (this.isCompleted(pp.pieceNum)) {
             return
@@ -121,7 +134,11 @@ class pieceFile {
         }
     }
 
-    addPiece(pieceNum: number, piece: ArrayBuffer) {
+    addPiece(pieceNum: number, piece: Uint8Array) {
+        if (this.complete) {
+            log("Warning: addPiece called when file is already downloaded")
+            return
+        }
         this.data[pieceNum] = new filePiece(piece, "completed")
         this.notifyPiece(pieceNum, true)
     }
@@ -146,10 +163,29 @@ class pieceFile {
             }
         }
         if (this.piecesDownloaded == this.totalPieces) {
-            // TODO:
-            // this.onfilecomplete(TODO)
-            log("File download complete")
+            this.generateFile()
+            this.onfilecomplete(new File([this.fileBuffer] as Array<BlobPart>, this.fileName))
         }
+    }
+
+    generateFile() {
+        let pieces = Object.values(this.data) as Array<filePiece>
+        let size = 0
+        for (let p of pieces) {
+            if (p.status == "completed") {
+                size += p.buf.byteLength
+            } else {
+                throw "generateFile called before file is complete"
+            }
+        }
+        this.fileBuffer = new Uint8Array(size)
+        let offset = 0
+        for (let p of pieces) {
+            this.fileBuffer.set(p.buf, offset)
+            p.swap(this.fileBuffer.subarray(offset, this.pieceLength))
+            offset += this.pieceLength
+        }
+        this.complete = true
     }
 
     isCompleted(pieceNum: number): boolean {
@@ -197,22 +233,22 @@ export class RTCBooster {
 
     requestedJoinSwarm: boolean = false
 
-    onfilecomplete: (file: Blob) => void = function(f) { log("Downloaded file", f) }
-    onpiece: (pieceNum: number, piece: ArrayBuffer, fromServer: boolean) => void = function(n, p, _f) { log("Downloaded piece " + n, p) }
-    onnextpiece: (piece: ArrayBuffer, fromServer: boolean) => void = function(p, _f) { log("Downloaded next piece", p) }
+    onfilecomplete: (file: File) => void = function(f) { log("Downloaded file", f) }
+    onpiece: (pieceNum: number, piece: Uint8Array, fromServer: boolean) => void = function(n, p, _f) { log("Downloaded piece " + n, p) }
+    onnextpiece: (piece: Uint8Array, fromServer: boolean) => void = function(p, _f) { log("Downloaded next piece", p) }
 
     // client should hook their download call to this, or they can call download immediately and it will connect ASAP
     onsignalserverconnect: () => void = function() { log("Connected to signaling server") }
 
     constructor(signalAddr: string, fname: string, pieceLength: number, totalPieces: number = -1) {
         this.swarm = {}
-        this.file = new pieceFile(pieceLength, totalPieces)
-        this.file.onfilecomplete = function(file: Blob) {
+        this.file = new pieceFile(fname, pieceLength, totalPieces)
+        this.file.onfilecomplete = function(file: File) {
             this.onfilecomplete(file)
         }.bind(this)
 
         // alert swarm if we have a new piece
-        this.file.onpiece = function(pieceNum: number, piece: ArrayBuffer, fromServer: boolean) {
+        this.file.onpiece = function(pieceNum: number, piece: Uint8Array, fromServer: boolean) {
             this.onpiece(pieceNum, piece, fromServer)
             for (let p of Object.values(this.swarm) as boostPeer[]) {
                 let n: types.have = {
@@ -227,13 +263,11 @@ export class RTCBooster {
             }
         }.bind(this)
 
-        this.file.onnextpiece = function(piece: ArrayBuffer, fromServer: boolean) {
+        this.file.onnextpiece = function(piece: Uint8Array, fromServer: boolean) {
             this.onnextpiece(piece, fromServer)
         }.bind(this)
 
         this.fileName = fname
-
-        this.onfilecomplete = function(_){ log("File " + fname + " has been downloaded") }
 
         this.signalingServer = new WebSocket(signalAddr)
         this.signalingServer.onopen = function(_evt) {
@@ -401,7 +435,7 @@ export class RTCBooster {
             // bypass expensive copy if possible
             if (!this.file.isCompleted(pieceNum)) {
                 log("Piece downloaded from server", xhr.response)
-                this.file.addPiece(pieceNum, xhr.response)
+                this.file.addPiece(pieceNum, new Uint8Array(xhr.response))
             }
         }.bind(this)
         xhr.send()
