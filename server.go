@@ -1,5 +1,5 @@
 // The boost server. A websocket handler basically. Designed to be a bare minimum as possible so that it
-// can handle many connections simultaneously without needing to store large ammounts of info
+// can handle many connections simultaneously without needing to store large amounts of info
 
 package main
 
@@ -164,7 +164,7 @@ func (s *server) handleJoin(c *websocket.Conn, uid string, msg []byte) error {
 
 	}
 	// only need to lock the actual connection, not entire map.
-	// if map changes it is not an issue becuase we are only holding pointer (read is safe)
+	// if map changes it is not an issue because we are only holding pointer (read is safe)
 	lock := &tmp.mutex
 	lock.Lock()
 	err = c.WriteJSON(nr)

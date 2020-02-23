@@ -15,7 +15,7 @@ npm install simple-peer
 npm install -D @types/simple-peer
 ```
 
-Then start up the example server and the boost server, and nagivate to `http://localhost:8080` (or whatever port you chose) in two separate tabs. In the first, enter the signal server address (eg. `localhost:6503`), click Connect and then Download and wait ~10 secs (progress updates automatically). After it is done, go to the second tab and do the same. With any luck, it should download the entire thing almost immediately. You can also try downloading the first tab for ~5 secs and then switching tabs: it will seamlessly download the first half, and then proceed to download the rest. View the console for details (I print a ton of stuff, be warned).
+Then start up the example server and the boost server, and navigate to `http://localhost:8080` (or whatever port you chose) in two separate tabs. In the first, enter the signal server address (eg. `localhost:6503`), click Connect and then Download and wait ~10 secs (progress updates automatically). After it is done, go to the second tab and do the same. With any luck, it should download the entire thing almost immediately. You can also try downloading the first tab for ~5 secs and then switching tabs: it will seamlessly download the first half, and then proceed to download the rest. View the console for details (I print a ton of stuff, be warned).
 
 This is an extremely basic proof of concept only at the moment. The end goal is to make a system that allows:
 - People to offload work from a CDN via WebRTC
@@ -23,7 +23,7 @@ This is an extremely basic proof of concept only at the moment. The end goal is 
 
 To achieve the second goal, the boost server does not know anything about the data. When a user first downloads something, they tell the server what file they have. When another user tries to download the same thing, they ask the boost server join a swarm and find peers who might already have it. Then, once they connect with each other, they exchange what pieces they have. They can then request the necessary pieces. The larger the swarm, the more pieces can be simultaneously downloaded.
 
-All this is well and good, if it werent for the littany of issues that come with this approach :)
+All this is well and good, if it weren't for the litany of issues that come with this approach :)
 I will list some here:
 - Verification of pieces is tough. Since we are trying to go for as little setup as possible, we need to calculate hashes on the fly. This is not a free operation, unfortunately. Browsers are getting faster, though, so it may not be as bad as it seems
 - Peer connection stability isn't the greatest
@@ -33,7 +33,7 @@ I will list some here:
 Next steps:
 - ~~Use WebRTC peer library. Using plain WebRTC was a good experience, but unless I make my own peer library it is not sustainable~~
     - Now using [simple-peer](https://github.com/feross/simple-peer)
-- ~~Either use bittorrent protocol or come up with own to allow peers to communicate (can't be JSON because binary limitation)~~
+- ~~Either use BitTorrent protocol or come up with own to allow peers to communicate (can't be JSON because binary limitation)~~
     - Used my own super simple protocol. Simply a type byte, piece number, and part number. Only weird thing is that I am storing this info at the end of the array, in the anticipation that [ArrayBuffer.transfer](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transfer) gets widely adopted
 - ~~Send large amounts of data efficiently. The best way is to read the SDP and find optimum length (adapter.js does this). Right now it is fixed at 16Kb.~~
     - Pointless to read SDP, see http://viblast.com/blog/2015/2/5/webrtc-data-channel-message-size/. Even though article is old, I have tested reading the SDP and the results were subpar (didn't send at all at first, reducing the size introduced errors like pieces getting clipped halfway)

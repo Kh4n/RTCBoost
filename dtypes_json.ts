@@ -53,7 +53,7 @@ type peerMsgByte = 0x0 | 0x1 | 0x2
 export function encodePeerMsg(msg: have | need): Uint8Array {
     let s = JSON.stringify(msg)
     let ret = new Uint8Array(s.length + 1)
-    // safe because there is no way for these types to conatin non ASCII chars
+    // safe because there is no way for these types to contain non ASCII chars
     let arr = stringToUintList(s)
     arr.push(peerJSONMsg)
     ret.set(arr)
@@ -64,22 +64,22 @@ export function encodePeerMsg(msg: have | need): Uint8Array {
 // encoding at the end because it will be faster when array.transfer is available (realloc for JS basically)
 export function encodePiecePart(num: number, part: number, offset: number, length: number, piece: Uint8Array): Uint8Array {
     if (piece.length == 0) {
-        throw "cannote encode empty piecepart"
+        throw "cannot encode empty piece part"
     }
     let data = piece.subarray(offset, offset + length)
-    let tosend = new Uint8Array(data.byteLength + 5)
+    let toSend = new Uint8Array(data.byteLength + 5)
 
-    tosend.set(data)
+    toSend.set(data)
 
     // encode piece num
-    tosend[tosend.length - 5] = (num >> 8) & 0xFF
-    tosend[tosend.length - 4] = num & 0xFF
+    toSend[toSend.length - 5] = (num >> 8) & 0xFF
+    toSend[toSend.length - 4] = num & 0xFF
 
-    tosend[tosend.length - 3] = (part >> 8) & 0xFF
-    tosend[tosend.length - 2] = part & 0xFF
+    toSend[toSend.length - 3] = (part >> 8) & 0xFF
+    toSend[toSend.length - 2] = part & 0xFF
 
-    tosend[tosend.length - 1] = offset + length >= piece.byteLength ? peerUint8LastPart : peerUint8Part
-    return tosend
+    toSend[toSend.length - 1] = offset + length >= piece.byteLength ? peerUint8LastPart : peerUint8Part
+    return toSend
 }
 
 // read a part sent over from a remote peer, and also decide if it was the last part of the transmission

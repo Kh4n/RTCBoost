@@ -83,10 +83,10 @@ func (m *join) Check() error {
 	return nil
 }
 
-func makeJoinResponse(peerID string, plist []string) *joinResponse {
+func makeJoinResponse(peerID string, peerList []string) *joinResponse {
 	return &joinResponse{
 		Type:     "joinResponse",
 		PeerID:   peerID,
-		PeerList: plist,
+		PeerList: peerList,
 	}
 }

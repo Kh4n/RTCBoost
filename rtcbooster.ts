@@ -82,7 +82,7 @@ class filePiece {
 
 // data structure to keep track of a file made up of separate pieces
 class pieceFile {
-    // no need for Map, as we dont need ordering on iteration
+    // no need for Map, as we don't need ordering on iteration
     data: Record<number, filePiece> = {}
 
     // need to store buffer because accessing it from file is just not practical
@@ -107,7 +107,7 @@ class pieceFile {
     // eg piece 3, 2, 1 downloaded, it wont fire, and then once 0 is downloaded it fires 4 times for 0, 1, 2, 3
     onnextpiece: (piece: Uint8Array, fromServer: boolean) => void = function(_) {}
 
-    // if totalPieces is negative, we dont know how many pieces there are, and onfilecomplete will never fire
+    // if totalPieces is negative, we don't know how many pieces there are, and onfilecomplete will never fire
     constructor(fname: string, pieceLength: number, totalPieces: number) {
         this.fileName = fname + Date.now()
         this.pieceLength = pieceLength
@@ -128,7 +128,7 @@ class pieceFile {
         if (!(pp.pieceNum in this.data)) {
             this.data[pp.pieceNum] = new filePiece(this.pieceLength)
         }
-        
+
         this.data[pp.pieceNum].copyPart(pp.data, pp.type == "piecePartLast")
 
         // transmission is done in order, so when we receive the last part, we know that the download is finished
@@ -152,7 +152,7 @@ class pieceFile {
         try {
             this.onpiece(pieceNum, piece, fromServer)
         } catch(e) {
-            log("Error occured in onpiece handler:", e as Error)
+            log("Error occurred in onpiece handler:", e as Error)
         }
         ++this.piecesDownloaded
 
@@ -161,7 +161,7 @@ class pieceFile {
                 try {
                     this.onnextpiece(this.data[this.nextPiece].buf, fromServer)
                 } catch (e) {
-                    log("Error occured in onnextpiece handler:", e as Error)
+                    log("Error occurred in onnextpiece handler:", e as Error)
                 }
                 ++this.nextPiece
             }
@@ -186,9 +186,9 @@ class pieceFile {
         let offset = 0
         for (let p of pieces) {
             this.fileBuffer.set(p.buf, offset)
-            let plen = p.buf.byteLength
-            p.swap(this.fileBuffer.subarray(offset, offset + plen))
-            offset += plen
+            let pieceLen = p.buf.byteLength
+            p.swap(this.fileBuffer.subarray(offset, offset + pieceLen))
+            offset += pieceLen
         }
         this.complete = true
     }
@@ -323,7 +323,7 @@ export class RTCBooster {
 
     handleJoinResponse(rsp: types.joinResponse) {
         rsp.peerList.forEach(remotePeerID => {
-            // dont connect to ourselves
+            // don't connect to ourselves
             if (rsp.peerID != remotePeerID) {
                 this.swarm[remotePeerID] = this.makeNewPeer(remotePeerID)
             }

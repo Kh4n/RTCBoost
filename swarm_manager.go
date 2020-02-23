@@ -47,7 +47,7 @@ func (s *swarm) getAll(peersOnline map[string]*websocketRWLock) []string {
 	return ret
 }
 
-// use case #2 for sync.Map accoring to docs: "when multiple goroutines read, write, and overwrite entries for disjoint sets of keys"
+// use case #2 for sync.Map according to docs: "when multiple goroutines read, write, and overwrite entries for disjoint sets of keys"
 // this matches that use case (many different swarms)
 type swarmManager struct {
 	fileToPeers sync.Map
