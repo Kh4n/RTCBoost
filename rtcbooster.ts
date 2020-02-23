@@ -25,7 +25,7 @@ class boostPeer extends Peer {
         if (sdpMaybe.sdp) {
             const match = sdpMaybe.sdp.match(/a=max-message-size:\s*(\d+)/);
             if (match !== null && match.length >= 2) {
-                log("Optimum part size (not using it): " + parseInt(match[1]) )
+                log("Largest part size (not using it): " + parseInt(match[1]) )
             }
         }
     }
@@ -40,6 +40,7 @@ type pieceStatus = "pending" | "started" | "completed"
 // represents a piece of a file
 class filePiece {
     buf: Uint8Array
+    buflenActual: number = 0
     // need to distinguish between what is being attempted and what is done, as a piece in data is
     // fully allocated when the first part arrives, which means it is in data before it is available
     status: pieceStatus = "pending"
@@ -49,20 +50,23 @@ class filePiece {
             this.buf = new Uint8Array(from as number)
         } else {
             this.buf = from as Uint8Array
+            this.buflenActual = from.byteLength
         }
         this.status = status
     }
 
-    copyPart(from: Uint8Array, offset: number, isLast: boolean) {
-        if (offset > this.buf.byteLength) {
+    copyPart(from: Uint8Array, isLast: boolean) {
+        if (this.buflenActual + from.byteLength > this.buf.byteLength) {
             log("Critical: peer sent part outside of piece boundary")
             this.status = "pending"
             throw "peer sent part outside of piece boundary"
         }
-        this.buf.set(from, offset)
+        this.buf.set(from, this.buflenActual)
+        this.buflenActual += from.byteLength
 
         this.status = "started"
         if (isLast) {
+            this.buf = this.buf.subarray(0, this.buflenActual)
             this.status = "completed"
         }
     }
@@ -81,7 +85,7 @@ class pieceFile {
     // no need for Map, as we dont need ordering on iteration
     data: Record<number, filePiece> = {}
 
-    // need to store buffer because accessing it from file it just not practical
+    // need to store buffer because accessing it from file is just not practical
     fileBuffer: Uint8Array = null
     complete: boolean = false
     fileName: string
@@ -112,20 +116,20 @@ class pieceFile {
 
     // add part of a piece
     addPiecePart(pp: types.piecePart) {
-        if (this.complete) {
-            log("Warning: addPiecePart called when file is already downloaded")
-            return
-        }
         // server beat us to it
         if (this.isCompleted(pp.pieceNum)) {
             return
+        }
+        if (this.complete) {
+            log("Warning: addPiecePart called when file is already downloaded")
+            return 
         }
         // allocate entire piece
         if (!(pp.pieceNum in this.data)) {
             this.data[pp.pieceNum] = new filePiece(this.pieceLength)
         }
-        let offset = pp.partNum * pp.data.byteLength
-        this.data[pp.pieceNum].copyPart(pp.data, offset, pp.type == "piecePartLast")
+        
+        this.data[pp.pieceNum].copyPart(pp.data, pp.type == "piecePartLast")
 
         // transmission is done in order, so when we receive the last part, we know that the download is finished
         // if that becomes an issue, we can always just keep track of each download separately 
@@ -182,8 +186,9 @@ class pieceFile {
         let offset = 0
         for (let p of pieces) {
             this.fileBuffer.set(p.buf, offset)
-            p.swap(this.fileBuffer.subarray(offset, this.pieceLength))
-            offset += this.pieceLength
+            let plen = p.buf.byteLength
+            p.swap(this.fileBuffer.subarray(offset, offset + plen))
+            offset += plen
         }
         this.complete = true
     }

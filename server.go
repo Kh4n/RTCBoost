@@ -167,9 +167,9 @@ func (s *server) handleJoin(c *websocket.Conn, uid string, msg []byte) error {
 	// if map changes it is not an issue becuase we are only holding pointer (read is safe)
 	lock := &tmp.mutex
 	lock.Lock()
-	c.WriteJSON(nr)
+	err = c.WriteJSON(nr)
 	lock.Unlock()
-	return nil
+	return err
 }
 
 func (s *server) handleForward(msg []byte) error {

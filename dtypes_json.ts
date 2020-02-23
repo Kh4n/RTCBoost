@@ -63,6 +63,9 @@ export function encodePeerMsg(msg: have | need): Uint8Array {
 // structure: data:pieceNum:partNum:0x1||0x0
 // encoding at the end because it will be faster when array.transfer is available (realloc for JS basically)
 export function encodePiecePart(num: number, part: number, offset: number, length: number, piece: Uint8Array): Uint8Array {
+    if (piece.length == 0) {
+        throw "cannote encode empty piecepart"
+    }
     let data = piece.subarray(offset, offset + length)
     let tosend = new Uint8Array(data.byteLength + 5)
 
