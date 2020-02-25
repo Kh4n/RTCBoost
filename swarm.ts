@@ -27,6 +27,7 @@ class piecesTracker {
     attempt(pieceNum: number) {
         if (!this.isAttempting(pieceNum)) {
             this.attempting.add(pieceNum)
+            this.needed.delete(pieceNum)
         } else {
             log("Warning: cannot attempt piece twice")
         }
@@ -34,6 +35,9 @@ class piecesTracker {
     cancel(pieceNum: number) {
         if (!this.attempting.delete(pieceNum)) {
             log("Warning: attempted to cancel piece not being attempted " + pieceNum)
+        }
+        if (!this.isCompleted(pieceNum)) {
+            this.needed.add(pieceNum)
         }
     }
 
@@ -157,7 +161,10 @@ export default class swarm {
                     this.tracker.addIfNeeded(n)
                     remotePeer.addOwnedPiece(n)
                 }
-                remotePeer.requestFirstMutualPiece(this.tracker.getNeeded())
+                let pn = remotePeer.requestFirstMutualPiece(this.tracker.getNeeded())
+                if (pn != -1) {
+                    this.tracker.attempt(pn)
+                }
                 break
             }
             case "need": {
