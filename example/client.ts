@@ -1,4 +1,4 @@
-import { RTCBooster } from "../rtcbooster"
+import RTCBooster from "../rtcbooster"
 
 // the booster to use (1 booster per file currently)
 var booster: RTCBooster = null
