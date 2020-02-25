@@ -40,7 +40,8 @@ Next steps:
     - Used my own super simple protocol. Simply a type byte, piece number, and part number. Only weird thing is that I am storing this info at the end of the array, in the anticipation that [ArrayBuffer.transfer](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transfer) gets widely adopted
 - ~~Send large amounts of data efficiently. The best way is to read the SDP and find optimum length (adapter.js does this). Right now it is fixed at 16Kb.~~
     - Pointless to read SDP, see http://viblast.com/blog/2015/2/5/webrtc-data-channel-message-size/. Even though article is old, I have tested reading the SDP and the results were subpar (didn't send at all at first, reducing the size introduced errors like pieces getting clipped halfway)
-- Swarm load balancing. Right now each peer aggressively grabs as much as possible from just one peer (first it connects to)
+- ~Swarm load balancing. Right now each peer aggressively grabs as much as possible from just one peer (first it connects to)~
+    - Basic greedy method: ask first peer for a piece that we need, then next...when a peer has delivered a piece all the way, we ask them again. Peers with better connections will automatically complete more pieces. Can be done much better still however
 - ~Find a clever way to store the file. I have a few ideas how to solve this~
     - Well, the file API seems to be getting in my way as much as possible. I structured most of the code to be space efficient, only to have the File API make a complete copy every time it makes a file. Currently the code just copies everything over to a new contiguous ArrayBuffer and sets the pointers accordingly. Ideally the file would then use this same data, but it does not (it makes a copy). Looking for a way around this currently.
 - Make server extensible so the backend storage can be swapped for something like Redis in practice

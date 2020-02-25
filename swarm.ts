@@ -150,7 +150,7 @@ export default class swarm {
         log("Received peer message:", msg)
 
         switch (t) {
-            // TODO: load balancing
+            // TODO: load balancing better 
             case "have": {
                 let h = msg as types.have
                 for (let n of h.pieceNums) {
