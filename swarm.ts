@@ -27,6 +27,7 @@ class piecesTracker {
     attempt(pieceNum: number) {
         if (!this.isAttempting(pieceNum)) {
             this.attempting.add(pieceNum)
+            this.needed.delete(pieceNum)
         } else {
             log("Warning: cannot attempt piece twice")
         }
@@ -34,6 +35,9 @@ class piecesTracker {
     cancel(pieceNum: number) {
         if (!this.attempting.delete(pieceNum)) {
             log("Warning: attempted to cancel piece not being attempted " + pieceNum)
+        }
+        if (!this.isCompleted(pieceNum)) {
+            this.needed.add(pieceNum)
         }
     }
 
