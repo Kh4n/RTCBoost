@@ -157,7 +157,10 @@ export default class swarm {
                     this.tracker.addIfNeeded(n)
                     remotePeer.addOwnedPiece(n)
                 }
-                remotePeer.requestFirstMutualPiece(this.tracker.getNeeded())
+                let pn = remotePeer.requestFirstMutualPiece(this.tracker.getNeeded())
+                if (pn != -1) {
+                    this.tracker.attempt(pn)
+                }
                 break
             }
             case "need": {
