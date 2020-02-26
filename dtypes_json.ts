@@ -22,7 +22,7 @@ export interface joinResponse extends all {
 }
 
 // peer to peer types
-export type p2pMsgTypes = "have" | "need" | "piecePart" | "piecePartLast"
+export type p2pMsgTypes = "have" | "need" | "cancel" | "piecePart" | "piecePartLast"
 
 export interface have {
     type: "have"
@@ -32,6 +32,11 @@ export interface have {
 export interface need {
     type: "need"
     pieceNums: Array<number>
+}
+
+export interface cancel {
+    type: "cancel"
+    pieceNum: number
 }
 
 export interface piecePart {
@@ -104,7 +109,7 @@ function stringToUintList(string: string) {
     return uintArray
 }
 
-export function decodePeerMsg(uintArray: Uint8Array): have | need | piecePart | {type:"none"} {
+export function decodePeerMsg(uintArray: Uint8Array): have | need | cancel | piecePart | {type:"none"} {
     let len = uintArray.length
     let p = uintArray[len - 1] as peerMsgByte
     switch (p) {
@@ -116,12 +121,14 @@ export function decodePeerMsg(uintArray: Uint8Array): have | need | piecePart | 
                     return msg as have
                 case "need":
                     return msg as need
+                case "cancel":
+                    return msg as cancel
                 case "piecePart":
                     console.log("Peer sent JSON marked as piece")
                     return {type:"none"}
 
                 default:
-                    console.log("Peer sent unknown data: " + msg)
+                    console.log("Peer sent unknown JSON data: " + msg)
                     return {type:"none"}
             }
         }

@@ -1,11 +1,10 @@
 import {assert, log} from "./misc"
 import * as types from "./dtypes_json"
-import pieceFile from "./piece_file"
 import Peer from "simple-peer"
 
 class piecesTracker {
     needed: Set<number> = new Set<number>()
-    attempting: Set<number> = new Set<number>()
+    attempting: Record<number, boostPeer> = {}
     completed: Set<number> = new Set<number>()
 
     addIfNeeded(pieceNum: number) {
@@ -16,7 +15,7 @@ class piecesTracker {
 
     setCompleted(pieceNum: number) {
         this.needed.delete(pieceNum)
-        this.attempting.delete(pieceNum)
+        delete this.attempting[pieceNum]
         if (!this.completed.has(pieceNum)) {
             this.completed.add(pieceNum)
         } else {
@@ -24,17 +23,26 @@ class piecesTracker {
         }
     }
 
-    attempt(pieceNum: number) {
+    attempt(pieceNum: number, remotePeer: boostPeer) {
         if (!this.isAttempting(pieceNum)) {
-            this.attempting.add(pieceNum)
+            this.attempting[pieceNum] = remotePeer
             this.needed.delete(pieceNum)
         } else {
             log("Warning: cannot attempt piece twice")
         }
     }
-    cancel(pieceNum: number) {
-        if (!this.attempting.delete(pieceNum)) {
-            log("Warning: attempted to cancel piece not being attempted " + pieceNum)
+    cancelReceive(pieceNum: number, disconnected: boolean) {
+        if (!this.isAttempting(pieceNum)) {
+            log("Warning: attempted to cancel piece not being attempted: " + pieceNum)
+        } else {
+            if (this.attempting[pieceNum] == null) {
+                throw "Critical: attempted to cancel server piece"
+            }
+            assert(this.attempting[pieceNum].currentlyReceiving == pieceNum, "Tracker and peer are out of sync")
+            if (!disconnected) {
+                this.attempting[pieceNum].cancelReceive()
+            }
+            delete this.attempting[pieceNum]
         }
         if (!this.isCompleted(pieceNum)) {
             this.needed.add(pieceNum)
@@ -42,7 +50,7 @@ class piecesTracker {
     }
 
     isAttempting(pieceNum: number): boolean {
-        return this.attempting.has(pieceNum)
+        return pieceNum in this.attempting
     }
     isCompleted(pieceNum: number): boolean {
         return this.completed.has(pieceNum)
@@ -68,14 +76,14 @@ export default class swarm {
     onpiecepartrecieved: (piecePart: types.piecePart) => void
     onneedpiece: (pieceNum: number) => Uint8Array
 
-    onsignaled(forward: types.forward) {
+    notifysignaled(forward: types.forward) {
         if (!(forward.from in this.peers)) {
             this.addPeer(forward.from, false)
         }
         this.peers[forward.from].signal(forward.data)
     }
 
-    onpiececompleted(pieceNum: number) {
+    notifypiececompleted(pieceNum: number) {
         this.tracker.setCompleted(pieceNum)
         let h: types.have = {
             type: "have",
@@ -103,7 +111,8 @@ export default class swarm {
     }
 
     serverAttempting(pieceNum: number) {
-        this.tracker.attempt(pieceNum)
+        this.tracker.cancelReceive(pieceNum, false)
+        this.tracker.attempt(pieceNum, null)
     }
 
     addPeer(remotePeerID: string, initiator: boolean) {
@@ -132,8 +141,8 @@ export default class swarm {
         p.on("data", this.generatePeerDataHandler(p))
 
         p.on("close", function() {
-            if (p.currentlySending != -1) {
-                this.tracker.cancel(p.currentlySending)
+            if (p.currentlyReceiving != -1) {
+                this.tracker.cancelReceive(p.currentlyReceiving)
             }
             delete this.peers[remotePeerID]
             --this.swarmSize
@@ -161,10 +170,7 @@ export default class swarm {
                     this.tracker.addIfNeeded(n)
                     remotePeer.addOwnedPiece(n)
                 }
-                let pn = remotePeer.requestFirstMutualPiece(this.tracker.getNeeded())
-                if (pn != -1) {
-                    this.tracker.attempt(pn)
-                }
+                remotePeer.requestFirstMutualPiece(this.tracker)
                 break
             }
             case "need": {
@@ -177,21 +183,20 @@ export default class swarm {
                 }
                 break
             }
+            case "cancel": {
+                remotePeer.cancelSend()
+            }
 
             case "piecePart": {
                 let pp = msg as types.piecePart
-                remotePeer.currentlySending = pp.pieceNum
+                remotePeer.currentlyReceiving = pp.pieceNum
                 this.onpiecepartrecieved(pp)
                 break
             }
             case "piecePartLast": {
-                remotePeer.currentlySending = -1
+                remotePeer.currentlyReceiving = -1
                 this.onpiecepartrecieved(msg as types.piecePart)
-                let pn = remotePeer.requestFirstMutualPiece(this.tracker.getNeeded())
-                if (pn != -1) {
-                    this.tracker.attempt(pn)
-                }
-                break
+                remotePeer.requestFirstMutualPiece(this.tracker)
             }
 
             default:
@@ -201,16 +206,17 @@ export default class swarm {
 }
 
 class boostPeer extends Peer {
-    // safe default size
-    partLen: number = 16000
+    partLen: number = 1<<14 // 16,384
     ownedPieces: Set<number> = new Set<number>()
-    currentlySending: number = -1
+    currentlyReceiving: number = -1
+    cancel: boolean = false
 
     constructor(opts: Peer.Options) {
         super(opts)
     }
 
-    requestFirstMutualPiece(needed: Set<number>): number {
+    requestFirstMutualPiece(tracker: piecesTracker) {
+        let needed = tracker.getNeeded()
         for (let pieceNum of needed) {
             if (this.ownedPieces.has(pieceNum)) {
                 let n: types.need = {
@@ -218,10 +224,20 @@ class boostPeer extends Peer {
                     pieceNums: [pieceNum],
                 }
                 this.sendJSON(n)
-                return pieceNum
+                tracker.attempt(pieceNum, this)
             }
         }
-        return -1
+    }
+    
+    cancelSend() {
+        this.cancel = true
+    }
+
+    cancelReceive() {
+        let c: types.cancel = {
+            type: "cancel",
+            pieceNum: this.currentlyReceiving
+        }
     }
 
     addOwnedPiece(pieceNum: number) {
@@ -232,7 +248,13 @@ class boostPeer extends Peer {
     sendPieceAsParts(pieceNum: number, piece: Uint8Array) {
         let pieceLen = piece.byteLength
         for (let offset = 0, part = 0; offset < pieceLen; offset += this.partLen, ++part) {
-            this.send(types.encodePiecePart(pieceNum, part, offset, this.partLen, piece))
+            if (!this.cancel) {
+                this.send(types.encodePiecePart(pieceNum, part, offset, this.partLen, piece))
+            } else {
+                this.cancel = false
+                log("Canceled sending piece to remote peer")
+                break
+            }
         }
     }
 

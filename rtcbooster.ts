@@ -43,7 +43,7 @@ export default class RTCBooster {
         // alert swarm if we have a new piece
         this.file.onpiece = function(pieceNum: number, piece: Uint8Array, fromServer: boolean) {
             this.onpiece(pieceNum, piece, fromServer)
-            this.swarm.onpiececompleted(pieceNum)
+            this.swarm.notifypiececompleted(pieceNum)
         }.bind(this)
 
         this.file.onnextpiece = function(piece: Uint8Array, fromServer: boolean) {
@@ -76,7 +76,7 @@ export default class RTCBooster {
         let t: types.msgTypes = msg.type
         switch(t) {
             case "forward": {
-                this.swarm.onsignaled(msg as types.forward)
+                this.swarm.notifysignaled(msg as types.forward)
                 break
             }
 
@@ -126,7 +126,7 @@ export default class RTCBooster {
         xhr.open("get", addr)
         xhr.responseType = "arraybuffer"
         xhr.onload = function() {
-            // bypass expensive copy if possible
+            // bypass overwriting peer piece
             if (!this.file.isCompleted(pieceNum)) {
                 log("Piece downloaded from server", xhr.response)
                 this.file.addPiece(pieceNum, new Uint8Array(xhr.response))

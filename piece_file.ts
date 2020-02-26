@@ -75,7 +75,7 @@ export default class pieceFile {
 
     // if totalPieces is negative, we don't know how many pieces there are, and onfilecomplete will never fire
     constructor(fname: string, pieceLength: number, totalPieces: number = -1) {
-        this.fileName = fname + Date.now()
+        this.fileName = fname
         this.pieceLength = pieceLength
         this.totalPieces = totalPieces
     }
