@@ -113,7 +113,7 @@ export function decodePeerMsg(uintArray: Uint8Array): have | need | cancel | pie
     let len = uintArray.length
     let p = uintArray[len - 1] as peerMsgByte
     switch (p) {
-        case 0x0: {
+        case peerJSONMsg: {
             let msg = JSON.parse(String.fromCharCode.apply(null, uintArray.subarray(0, len - 1)))
             let t = msg.type as p2pMsgTypes
             switch (t) {

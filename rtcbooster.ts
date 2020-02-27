@@ -3,9 +3,11 @@ import Peer from "simple-peer"
 import pieceFile from "./piece_file"
 import swarm from "./swarm"
 import {assert, log} from "./misc"
+import { SwarmDownloadStrategy, StreamStrategy } from "./strategy"
 
 export default class RTCBooster {
     signalingServer: WebSocket
+    strategy: SwarmDownloadStrategy
 
     peerID: string
     swarm: swarm
@@ -23,31 +25,35 @@ export default class RTCBooster {
     onsignalserverconnect: () => void = function() { log("Connected to signaling server") }
 
     constructor(signalAddr: string, fname: string, pieceLength: number, totalPieces: number = -1) {
-        this.swarm = new swarm()
-        this.swarm.onneedpiece = function(pieceNum: number): Uint8Array {
-            return this.file.data[pieceNum].buf
-        }.bind(this)
-        this.swarm.onpiecepartrecieved = function(pp: types.piecePart) {
-            this.file.addPiecePart(pp)
-        }.bind(this)
-        this.swarm.onsignalready = function(forward: types.forward) {
-            this.signalToServer(forward)
-        }.bind(this)
-
-
         this.file = new pieceFile(fname, pieceLength, totalPieces)
         this.file.onfilecomplete = function(file: File) {
             this.onfilecomplete(file)
         }.bind(this)
-
         // alert swarm if we have a new piece
         this.file.onpiece = function(pieceNum: number, piece: Uint8Array, fromServer: boolean) {
             this.onpiece(pieceNum, piece, fromServer)
             this.swarm.notifypiececompleted(pieceNum)
         }.bind(this)
-
         this.file.onnextpiece = function(piece: Uint8Array, fromServer: boolean) {
             this.onnextpiece(piece, fromServer)
+        }.bind(this)
+        
+
+        this.strategy = new StreamStrategy()
+        this.strategy.onneedpiece = function(pieceNum: number): Uint8Array {
+            return this.file.data[pieceNum].buf
+        }.bind(this)
+        this.strategy.onpiecepartreceived = function(pp: types.piecePart) {
+            this.file.addPiecePart(pp)
+        }.bind(this)
+        this.strategy.onpiecereceived = function(pieceNum: number, piece: Uint8Array) {
+            this.file.addPiece(pieceNum, piece)
+        }.bind(this)
+
+
+        this.swarm = new swarm(this.strategy)
+        this.swarm.onsignalready = function(forward: types.forward) {
+            this.signalToServer(forward)
         }.bind(this)
 
         this.fileName = fname
@@ -117,22 +123,6 @@ export default class RTCBooster {
             // don't exit, still try to download (subject to change in future versions maybe?)
         }
 
-        if (this.file.isCompleted(pieceNum)) {
-            log("Skipping piece " + pieceNum)
-            return
-        }
-
-        var xhr = new XMLHttpRequest()
-        xhr.open("get", addr)
-        xhr.responseType = "arraybuffer"
-        xhr.onload = function() {
-            // bypass overwriting peer piece
-            if (!this.file.isCompleted(pieceNum)) {
-                log("Piece downloaded from server", xhr.response)
-                this.file.addPiece(pieceNum, new Uint8Array(xhr.response))
-            }
-        }.bind(this)
-        xhr.send()
-        this.swarm.serverAttempting(pieceNum)
+        this.strategy.download(addr, pieceNum)
     }
 }
