@@ -4,7 +4,7 @@ import * as types from "./dtypes_json"
 type pieceStatus = "pending" | "started" | "completed"
 
 // represents a piece of a file
-class filePiece {
+class FilePiece {
     buf: Uint8Array
     buflenActual: number = 0
     // need to distinguish between what is being attempted and what is done, as a piece in data is
@@ -47,9 +47,10 @@ class filePiece {
 }
 
 // data structure to keep track of a file made up of separate pieces
-export default class pieceFile {
+export default class PieceFile {
     // no need for Map, as we don't need ordering on iteration
-    data: Record<number, filePiece> = {}
+    data: Record<number, FilePiece> = {}
+    completed: Array<number> = []
 
     // need to store buffer because accessing it from file is just not practical
     fileBuffer: Uint8Array = null
@@ -92,7 +93,7 @@ export default class pieceFile {
         }
         // allocate entire piece
         if (!(pp.pieceNum in this.data)) {
-            this.data[pp.pieceNum] = new filePiece(this.pieceLength)
+            this.data[pp.pieceNum] = new FilePiece(this.pieceLength)
         }
 
         this.data[pp.pieceNum].copyPart(pp.data, pp.type == "piecePartLast")
@@ -109,11 +110,12 @@ export default class pieceFile {
             log("Warning: addPiece called when file is already downloaded")
             return
         }
-        this.data[pieceNum] = new filePiece(piece, "completed")
+        this.data[pieceNum] = new FilePiece(piece, "completed")
         this.notifyPiece(pieceNum, true)
     }
 
     notifyPiece(pieceNum: number, fromServer: boolean = false) {
+        this.completed.push(pieceNum)
         let piece = this.data[pieceNum].buf
         try {
             this.onpiece(pieceNum, piece, fromServer)
@@ -139,7 +141,7 @@ export default class pieceFile {
     }
 
     generateFile() {
-        let pieces = Object.values(this.data) as Array<filePiece>
+        let pieces = Object.values(this.data) as Array<FilePiece>
         let size = 0
         for (let p of pieces) {
             if (p.status == "completed") {
@@ -167,5 +169,15 @@ export default class pieceFile {
     isAttemptingOrCompleted(pieceNum: number): boolean {
         let d = this.data
         return pieceNum in d && d[pieceNum].status != "pending"
+    }
+
+    attempt(pieceNum: number) {
+        if (pieceNum in this.data) {
+            this.data[pieceNum].status = "started"
+        }
+    }
+
+    cancel(pieceNum: number) {
+        this.data[pieceNum].status = "pending"
     }
 }

@@ -2,11 +2,10 @@ import * as types from "./dtypes_json"
 import Peer from "simple-peer"
 import {assert, log} from "./misc"
 
-export default class boostPeer extends Peer {
+export default class BoostPeer extends Peer {
     partLen: number = 1<<14 // 16,384
     ownedPieces: Set<number> = new Set<number>()
     currentlyReceiving: number = -1
-    cancel: boolean = false
 
     constructor(opts: Peer.Options) {
         super(opts)
@@ -20,13 +19,7 @@ export default class boostPeer extends Peer {
     sendPieceAsParts(pieceNum: number, piece: Uint8Array) {
         let pieceLen = piece.byteLength
         for (let offset = 0, part = 0; offset < pieceLen; offset += this.partLen, ++part) {
-            if (!this.cancel) {
-                this.send(types.encodePiecePart(pieceNum, part, offset, this.partLen, piece))
-            } else {
-                this.cancel = false
-                log("Canceled sending piece to remote peer")
-                break
-            }
+            this.send(types.encodePiecePart(pieceNum, part, offset, this.partLen, piece))
         }
     }
 
